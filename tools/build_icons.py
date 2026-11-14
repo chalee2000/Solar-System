@@ -1,4 +1,4 @@
-"""Render small lit-sphere icons for the body list from the 2K maps.
+"""Render small lit-sphere icons for the body list from the texture maps.
 Usage: python3 -I tools/build_icons.py <textures_dir>"""
 import sys, os
 import numpy as np
@@ -19,8 +19,14 @@ def sample(img, lon, lat):
     v = (0.5 - lat / np.pi) * (h - 1)
     return img[np.clip(v.round().astype(int), 0, h - 1), u.round().astype(int) % w]
 
+def best(name):
+    for tier in ("2k", "1k"):
+        if os.path.exists(os.path.join(tex_dir, tier, name + ".jpg")):
+            return f"{tier}/{name}.jpg"
+    raise FileNotFoundError(name)
+
 def render(name, lon0=0.0, tilt=18.0, radius=0.94, emissive=False, clouds=None, ring=None, rim=None):
-    img = load(f"2k/{name}.jpg")
+    img = load(best(name))
     ys, xs = np.mgrid[0:N, 0:N]
     x = (xs + 0.5) / N * 2 - 1
     y = 1 - (ys + 0.5) / N * 2
@@ -36,7 +42,7 @@ def render(name, lon0=0.0, tilt=18.0, radius=0.94, emissive=False, clouds=None, 
     lat = np.arcsin(np.clip(by, -1, 1))
     col = sample(img, lon, lat)
     if clouds is not None:
-        c = sample(load(f"2k/{clouds}.jpg", "L"), lon, lat)[..., None]
+        c = sample(load(best(clouds), "L"), lon, lat)[..., None]
         col = col * (1 - 0.85 * c) + 0.85 * c
     L = np.array([-0.52, 0.48, 0.71]); L /= np.linalg.norm(L)
     ndl = px * L[0] + py * L[1] + pz * L[2]

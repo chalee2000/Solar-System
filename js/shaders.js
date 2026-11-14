@@ -96,7 +96,7 @@ void main() {
   // Fine grain that fades in as texels grow larger than pixels, so a close view
   // reads as terrain instead of a blurred image.
   float grain = 0.5;
-  if (uDetail > 0.0 || uRough > 0.0) {
+  if ((uDetail > 0.0 || uRough > 0.0) && mag > 0.0) {
     grain = fbm(normalize(vPosO) * (uTexW / 14.0));
     albedo *= 1.0 + uDetail * mag * (grain - 0.5) * 1.5;
   }

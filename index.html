@@ -29,7 +29,7 @@
     </div>
     <div class="topbar-actions">
       <button id="btn-settings" class="pill-btn" type="button" aria-expanded="false" aria-controls="settings">การแสดงผล</button>
-      <button id="btn-help" class="round-btn" type="button" aria-label="วิธีใช้และที่มาของข้อมูล">?</button>
+      <button id="btn-help" class="round-btn" type="button" aria-label="วิธีใช้และที่มาของข้อมูล" title="วิธีใช้">?</button>
     </div>
   </header>
 
@@ -44,7 +44,7 @@
         <h2 id="info-name"></h2>
         <p id="info-en" class="info-en"></p>
       </div>
-      <button id="info-close" class="round-btn" type="button" aria-label="ปิดรายละเอียด">
+      <button id="info-close" class="round-btn" type="button" aria-label="ปิดรายละเอียด" title="ปิด">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
     </header>
@@ -81,19 +81,19 @@
   </aside>
 
   <div class="zoom" role="group" aria-label="ควบคุมมุมมอง">
-    <button id="zoom-in" class="round-btn" type="button" aria-label="ซูมเข้า กดค้างเพื่อซูมต่อเนื่อง">
+    <button id="zoom-in" class="round-btn" type="button" aria-label="ซูมเข้า กดค้างเพื่อซูมต่อเนื่อง" title="ซูมเข้า">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
     </button>
-    <button id="zoom-out" class="round-btn" type="button" aria-label="ซูมออก กดค้างเพื่อซูมต่อเนื่อง">
+    <button id="zoom-out" class="round-btn" type="button" aria-label="ซูมออก กดค้างเพื่อซูมต่อเนื่อง" title="ซูมออก">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
     </button>
-    <button id="btn-overview" class="round-btn" type="button" aria-label="กลับสู่ภาพรวมระบบสุริยะ">
+    <button id="btn-overview" class="round-btn" type="button" aria-label="กลับสู่ภาพรวมระบบสุริยะ" title="ภาพรวมระบบสุริยะ">
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2" fill="currentColor"/><ellipse cx="8" cy="8" rx="6.6" ry="3.4" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
     </button>
   </div>
 
   <footer id="timebar" class="timebar" aria-label="ควบคุมเวลา">
-    <button id="btn-play" class="play" type="button" aria-label="หยุดเวลา">
+    <button id="btn-play" class="play" type="button" aria-label="หยุดเวลา" title="หยุดหรือเล่นเวลา (Space)">
       <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.2v9.6M11 3.2v9.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
       <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 2.8v10.4L13.2 8z" fill="currentColor"/></svg>
     </button>
@@ -102,11 +102,11 @@
       <output id="speed-label" for="speed"></output>
     </div>
     <button id="btn-reverse" class="pill-btn quiet" type="button" aria-pressed="false">ย้อนเวลา</button>
-    <button id="btn-date" class="clock" type="button" aria-expanded="false" aria-controls="datepop" aria-label="เลือกวันที่">
+    <button id="btn-date" class="clock" type="button" aria-expanded="false" aria-controls="datepop" aria-label="เลือกวันที่" title="กระโดดไปยังวันที่">
       <span id="date-main" class="clock-main"></span>
       <span id="date-sub" class="clock-sub"></span>
     </button>
-    <button id="btn-now" class="pill-btn quiet" type="button">ตอนนี้</button>
+    <button id="btn-now" class="pill-btn quiet" type="button" title="กลับมาที่วันและเวลาปัจจุบัน">ตอนนี้</button>
 
     <div id="datepop" class="popover datepop" hidden>
       <form id="date-form">

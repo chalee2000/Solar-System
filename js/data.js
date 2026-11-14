@@ -8,7 +8,7 @@ export const BODIES = [
   {
     id: 'sun', name: 'ดวงอาทิตย์', en: 'Sun', kind: 'star', type: 'ดาวฤกษ์ ชนิด G2V',
     color: '#ffc65c', radiusKm: 695700, flattening: 0,
-    tex: { map: { name: 'sun', tiers: ['2k', '4k'] } },
+    tex: { map: { name: 'sun', tiers: ['1k', '2k', '4k'] } },
     desc: 'ดวงอาทิตย์เป็นดาวฤกษ์ใจกลางระบบสุริยะ มีมวลมากถึงร้อยละ 99.86 ของมวลทั้งระบบ พลังงานเกิดจากปฏิกิริยานิวเคลียร์ฟิวชันที่แกนกลาง ซึ่งหลอมไฮโดรเจนให้กลายเป็นฮีเลียม แสงจากดวงอาทิตย์ใช้เวลาประมาณ 8 นาที 20 วินาทีเดินทางมาถึงโลก',
     facts: [
       ['เส้นผ่านศูนย์กลาง', '1,392,700 กม.', '109 เท่าของโลก'],
@@ -30,7 +30,7 @@ export const BODIES = [
   {
     id: 'mercury', name: 'ดาวพุธ', en: 'Mercury', kind: 'planet', type: 'ดาวเคราะห์หิน',
     color: '#b5aea4', radiusKm: 2439.7, flattening: 0,
-    tex: { map: { name: 'mercury', tiers: ['2k', '4k', '8k'] } },
+    tex: { map: { name: 'mercury', tiers: ['1k', '2k', '4k', '8k'] } },
     surface: { wrap: 0.0, bump: 3.2, rough: 0.7, detail: 0.3 },
     desc: 'ดาวพุธเป็นดาวเคราะห์ที่เล็กที่สุดและอยู่ใกล้ดวงอาทิตย์ที่สุด โคจรครบรอบเร็วที่สุดเพียง 88 วัน พื้นผิวเต็มไปด้วยหลุมอุกกาบาตคล้ายดวงจันทร์ และแทบไม่มีบรรยากาศห่อหุ้ม อุณหภูมิกลางวันกับกลางคืนจึงต่างกันมากกว่า 600 องศาเซลเซียส',
     facts: [
@@ -56,7 +56,7 @@ export const BODIES = [
   {
     id: 'venus', name: 'ดาวศุกร์', en: 'Venus', kind: 'planet', type: 'ดาวเคราะห์หิน',
     color: '#e8c27a', radiusKm: 6051.8, flattening: 0,
-    tex: { map: { name: 'venus', tiers: ['2k', '4k', '8k'] }, shell: { name: 'venus_clouds', tiers: ['2k', '4k'] } },
+    tex: { map: { name: 'venus', tiers: ['1k', '2k', '4k', '8k'] }, shell: { name: 'venus_clouds', tiers: ['1k', '2k', '4k'] } },
     surface: { wrap: 0.25, bump: 2.2, rough: 0.4, detail: 0.22 },
     shell: { kind: 'opaque', label: 'ชั้นเมฆ', radius: 1.012, driftDegPerDay: -88, wrap: 0.3 },
     atmosphere: { color: [1.0, 0.86, 0.58], thickness: 0.035, strength: 0.85 },
@@ -85,11 +85,11 @@ export const BODIES = [
     id: 'earth', name: 'โลก', en: 'Earth', kind: 'planet', type: 'ดาวเคราะห์หิน',
     color: '#5aa2ff', radiusKm: 6378.137, flattening: 0.00335,
     tex: {
-      map: { name: 'earth', tiers: ['2k', '4k', '8k'] },
-      night: { name: 'earth_night', tiers: ['2k', '4k'] },
-      spec: { name: 'earth_spec', tiers: ['2k', '4k'], data: true },
-      normal: { name: 'earth_normal', tiers: ['2k', '4k'], data: true },
-      shell: { name: 'earth_clouds', tiers: ['2k', '4k'], data: true },
+      map: { name: 'earth', tiers: ['1k', '2k', '4k', '8k'] },
+      night: { name: 'earth_night', tiers: ['1k', '2k', '4k'] },
+      spec: { name: 'earth_spec', tiers: ['1k', '2k', '4k'], data: true, gray: true },
+      normal: { name: 'earth_normal', tiers: ['1k', '2k'], data: true },
+      shell: { name: 'earth_clouds', tiers: ['1k', '2k', '4k'], data: true, gray: true },
     },
     surface: { wrap: 0.12, bump: 0, detail: 0.1, normalScale: 1.6 },
     shell: { kind: 'alpha', label: 'เมฆ', radius: 1.006, driftDegPerDay: 14 },
@@ -118,7 +118,7 @@ export const BODIES = [
   {
     id: 'moon', name: 'ดวงจันทร์', en: 'Moon', kind: 'moon', type: 'ดาวบริวารของโลก', parent: 'earth',
     color: '#d3d6dc', radiusKm: 1737.4, flattening: 0,
-    tex: { map: { name: 'moon', tiers: ['2k', '4k', '8k'] } },
+    tex: { map: { name: 'moon', tiers: ['1k', '2k', '4k', '8k'] } },
     surface: { wrap: 0.0, bump: 3.5, rough: 0.7, detail: 0.3 },
     desc: 'ดวงจันทร์เป็นดาวบริวารตามธรรมชาติเพียงดวงเดียวของโลก และเป็นวัตถุนอกโลกแห่งเดียวที่มนุษย์เคยไปเหยียบ ดวงจันทร์หันด้านเดียวเข้าหาโลกเสมอเพราะหมุนรอบตัวเองครบรอบพอดีกับการโคจรหนึ่งรอบ แรงโน้มถ่วงของดวงจันทร์เป็นสาเหตุหลักของน้ำขึ้นน้ำลง',
     facts: [
@@ -143,7 +143,7 @@ export const BODIES = [
   {
     id: 'mars', name: 'ดาวอังคาร', en: 'Mars', kind: 'planet', type: 'ดาวเคราะห์หิน',
     color: '#e0633f', radiusKm: 3396.2, flattening: 0.00589,
-    tex: { map: { name: 'mars', tiers: ['2k', '4k', '8k'] } },
+    tex: { map: { name: 'mars', tiers: ['1k', '2k', '4k', '8k'] } },
     surface: { wrap: 0.06, bump: 2.8, rough: 0.5, detail: 0.24 },
     atmosphere: { color: [0.95, 0.62, 0.45], thickness: 0.018, strength: 0.32 },
     desc: 'ดาวอังคารได้ชื่อว่าดาวแดงเพราะพื้นผิวอุดมด้วยเหล็กออกไซด์หรือสนิมเหล็ก มีภูเขาไฟที่สูงที่สุดและหุบเขาที่ยาวที่สุดในระบบสุริยะ มีน้ำแข็งที่ขั้วทั้งสอง และมีหลักฐานว่าเคยมีน้ำไหลบนพื้นผิว จึงเป็นเป้าหมายสำคัญของการค้นหาร่องรอยสิ่งมีชีวิต',
@@ -170,7 +170,7 @@ export const BODIES = [
   {
     id: 'jupiter', name: 'ดาวพฤหัสบดี', en: 'Jupiter', kind: 'planet', type: 'ดาวแก๊สยักษ์',
     color: '#d9a877', radiusKm: 71492, flattening: 0.06487,
-    tex: { map: { name: 'jupiter', tiers: ['2k', '4k'] } },
+    tex: { map: { name: 'jupiter', tiers: ['1k', '2k', '4k'] } },
     surface: { wrap: 0.22, bump: 0, detail: 0.05 },
     atmosphere: { color: [0.95, 0.82, 0.66], thickness: 0.014, strength: 0.4 },
     desc: 'ดาวพฤหัสบดีเป็นดาวเคราะห์ที่ใหญ่ที่สุดในระบบสุริยะ มีมวลมากกว่าดาวเคราะห์ดวงอื่นทั้งหมดรวมกันกว่า 2 เท่า ประกอบด้วยไฮโดรเจนและฮีเลียมเป็นหลัก ไม่มีพื้นผิวแข็ง แถบเมฆสีสลับกันเกิดจากลมแรงที่พัดสวนทาง และมีจุดแดงใหญ่ซึ่งเป็นพายุหมุนที่ปรากฏมานานหลายร้อยปี',
@@ -197,7 +197,7 @@ export const BODIES = [
   {
     id: 'saturn', name: 'ดาวเสาร์', en: 'Saturn', kind: 'planet', type: 'ดาวแก๊สยักษ์',
     color: '#e6cf9a', radiusKm: 60268, flattening: 0.09796,
-    tex: { map: { name: 'saturn', tiers: ['2k', '4k'] } },
+    tex: { map: { name: 'saturn', tiers: ['1k', '2k', '4k'] } },
     surface: { wrap: 0.22, bump: 0, detail: 0.04 },
     atmosphere: { color: [0.98, 0.88, 0.68], thickness: 0.014, strength: 0.35 },
     // Ring strip spans 69,433–141,073 km from the centre (C ring to just past the A ring).
@@ -226,7 +226,7 @@ export const BODIES = [
   {
     id: 'uranus', name: 'ดาวยูเรนัส', en: 'Uranus', kind: 'planet', type: 'ดาวน้ำแข็งยักษ์',
     color: '#9fe3e6', radiusKm: 25559, flattening: 0.02293,
-    tex: { map: { name: 'uranus', tiers: ['2k'] } },
+    tex: { map: { name: 'uranus', tiers: ['1k', '2k'] } },
     surface: { wrap: 0.25, bump: 0, detail: 0.03 },
     atmosphere: { color: [0.62, 0.92, 0.96], thickness: 0.02, strength: 0.5 },
     // Narrow dark rings between 41,837 km (ring 6) and 51,149 km (ε ring).
@@ -255,7 +255,7 @@ export const BODIES = [
   {
     id: 'neptune', name: 'ดาวเนปจูน', en: 'Neptune', kind: 'planet', type: 'ดาวน้ำแข็งยักษ์',
     color: '#5f86ff', radiusKm: 24764, flattening: 0.01708,
-    tex: { map: { name: 'neptune', tiers: ['2k'] } },
+    tex: { map: { name: 'neptune', tiers: ['1k', '2k'] } },
     surface: { wrap: 0.25, bump: 0, detail: 0.04 },
     atmosphere: { color: [0.4, 0.56, 1.0], thickness: 0.02, strength: 0.6 },
     desc: 'ดาวเนปจูนเป็นดาวเคราะห์ที่อยู่ไกลดวงอาทิตย์ที่สุด เป็นดาวน้ำแข็งยักษ์สีน้ำเงินเข้ม มีลมพัดแรงที่สุดในระบบสุริยะด้วยความเร็วกว่า 2,000 กม./ชม. นักดาราศาสตร์คำนวณตำแหน่งของดาวเนปจูนได้ก่อนจะส่องพบจริงใน ค.ศ. 1846',
@@ -282,7 +282,7 @@ export const BODIES = [
   {
     id: 'pluto', name: 'ดาวพลูโต', en: 'Pluto', kind: 'dwarf', type: 'ดาวเคราะห์แคระ',
     color: '#cfae96', radiusKm: 1188.3, flattening: 0,
-    tex: { map: { name: 'pluto', tiers: ['2k'], width: 720 } },
+    tex: { map: { name: 'pluto', tiers: ['1k'], width: 720 } },
     surface: { wrap: 0.04, bump: 2.4, rough: 0.6, detail: 0.3 },
     atmosphere: { color: [0.55, 0.7, 0.95], thickness: 0.02, strength: 0.2 },
     desc: 'ดาวพลูโตเคยนับเป็นดาวเคราะห์ดวงที่ 9 จนถึง ค.ศ. 2006 จึงถูกจัดใหม่เป็นดาวเคราะห์แคระ อยู่ในแถบไคเปอร์ซึ่งเป็นบริเวณของวัตถุน้ำแข็งที่อยู่เลยวงโคจรดาวเนปจูนออกไป ยานนิวฮอไรซันส์บินผ่านเมื่อ ค.ศ. 2015 เผยให้เห็นที่ราบน้ำแข็งไนโตรเจนรูปหัวใจและภูเขาน้ำแข็ง',

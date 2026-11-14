@@ -1,9 +1,10 @@
-// Texture loading with resolution tiers. Every body starts on its 2K maps;
-// the focused body is upgraded to 4K and, on capable desktops, 8K.
+// Texture loading with resolution tiers. Every body starts on light 1K maps,
+// which is plenty while it is a few pixels across. The body the camera is
+// focused on is upgraded: 4K then 8K on desktops, 2K then 4K on phones.
 import * as THREE from '../vendor/three/three.module.min.js';
 
-export const TIER_WIDTH = { '2k': 2048, '4k': 4096, '8k': 8192 };
-const TIER_ORDER = ['2k', '4k', '8k'];
+export const TIER_WIDTH = { '1k': 1024, '2k': 2048, '4k': 4096, '8k': 8192 };
+export const TIER_ORDER = ['1k', '2k', '4k', '8k'];
 
 async function loadImage(url) {
   const res = await fetch(url);
@@ -32,6 +33,8 @@ export class TextureStore {
     const lowMemory = typeof navigator !== 'undefined' && navigator.deviceMemory && navigator.deviceMemory <= 4;
     // An 8K map costs ~180 MB of GPU memory with mipmaps: desktop only.
     this.maxTier = this.maxSize >= 8192 && !coarse && !lowMemory ? '8k' : this.maxSize >= 4096 ? '4k' : '2k';
+    // Tier for a focused body seen whole; the top tier loads once the camera closes in.
+    this.farTier = TIER_ORDER[Math.max(1, TIER_ORDER.indexOf(this.maxTier) - 1)];
   }
 
   /** Highest tier a channel offers that is no larger than `wanted` and this device's limit. */
@@ -47,24 +50,27 @@ export class TextureStore {
   }
 
   /** Images are used unflipped (flipY = false); geometry UVs are flipped to match. */
-  async load(url, { data = false } = {}) {
+  async load(url, { data = false, gray = false, mipmaps = true } = {}) {
     const image = await loadImage(url);
     const tex = new THREE.Texture(image);
     tex.flipY = false;
     tex.premultiplyAlpha = false;
     tex.colorSpace = data ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+    if (gray) tex.format = THREE.RedFormat; // single-channel masks: a quarter of the GPU memory
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.minFilter = mipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = true;
-    tex.anisotropy = this.anisotropy;
+    tex.generateMipmaps = mipmaps;
+    tex.anisotropy = mipmaps ? this.anisotropy : 1;
     tex.needsUpdate = true;
     return tex;
   }
 
-  loadChannel(channel, tier) {
-    return this.load(this.url(channel, tier), { data: !!channel.data });
+  async loadChannel(channel, tier) {
+    const tex = await this.load(this.url(channel, tier), { data: !!channel.data, gray: !!channel.gray });
+    tex.userData.tier = tier;
+    return tex;
   }
 
   static dispose(tex) {

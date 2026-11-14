@@ -4,7 +4,7 @@ import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import * as A from './astro.js';
 import { BODIES } from './data.js';
 import * as SH from './shaders.js';
-import { TextureStore, TIER_WIDTH } from './textures.js';
+import { TextureStore, TIER_WIDTH, TIER_ORDER } from './textures.js';
 
 // ── scale model ────────────────────────────────────────────────────────────
 // s = 0: "compressed" — distances follow a^0.4 and radii (R/R⊕)^0.45 so every
@@ -23,6 +23,7 @@ const MAX_MS = Date.UTC(3000, 0, 1);
 const GIANTS = new Set(['jupiter', 'saturn', 'uranus', 'neptune']);
 const ORBIT_SEGMENTS = 720;
 const MOON_ORBIT_SEGMENTS = 120;
+const OVERVIEW_PITCH = 33; // degrees above the ecliptic
 
 export function sceneDistance(au, s) {
   return UNIT * Math.pow(au, DIST_EXP + (1 - DIST_EXP) * s);
@@ -145,7 +146,7 @@ export class World {
     this.options = { orbits: true, belts: true };
 
     this.width = 1; this.height = 1;
-    this.freeW = 1; this.freeH = 1;
+    this.freeW = Infinity; this.freeH = Infinity; // unobstructed part of the view, set by the UI
     this._shift = new THREE.Vector2();
     this._shiftGoal = new THREE.Vector2();
     this._zoomHold = 0;
@@ -175,15 +176,13 @@ export class World {
     for (const def of BODIES) {
       base[def.id] = {};
       for (const [key, channel] of Object.entries(def.tex)) {
-        add(this.store.loadChannel(channel, channel.tiers[0]), (tex) => {
-          tex.userData.tier = channel.tiers[0];
-          base[def.id][key] = tex;
-        });
+        add(this.store.loadChannel(channel, channel.tiers[0]), (tex) => { base[def.id][key] = tex; });
       }
     }
     let saturnRing, stars;
     add(this.store.load('textures/saturn_ring.png'), (t) => { t.wrapS = THREE.ClampToEdgeWrapping; saturnRing = t; });
-    add(this.store.load('textures/stars_4k.jpg'), (t) => { stars = t; });
+    // The sky is never minified, so it can skip mipmaps (a third less memory).
+    add(this.store.load('textures/stars_4k.jpg', { mipmaps: false }), (t) => { stars = t; });
     await Promise.all(jobs);
 
     this.sphereLo = makeSphere(64, 32);
@@ -198,7 +197,8 @@ export class World {
 
     this.target = this.byId.sun;
     this._place(A.daysSinceJ2000(this.simMs));
-    const dir = new THREE.Vector3(0.28, 0.52, 0.8).normalize();
+    const pitch = OVERVIEW_PITCH * A.DEG;
+    const dir = new THREE.Vector3(0.33 * Math.cos(pitch), Math.sin(pitch), 0.944 * Math.cos(pitch)).normalize();
     this.camera.position.copy(dir.multiplyScalar(this._overviewDistance() * 1.9));
     this.controls.target.set(0, 0, 0);
     this.camera.lookAt(0, 0, 0);
@@ -206,7 +206,7 @@ export class World {
 
     // The 8K Milky Way is a nicety; fetch it once everything else is on screen.
     if (this.store.maxTier === '8k') {
-      this.store.load('textures/stars_8k.jpg').then((t) => {
+      this.store.load('textures/stars_8k.jpg', { mipmaps: false }).then((t) => {
         TextureStore.dispose(this.sky.material.map);
         this.sky.material.map = t;
         this.sky.material.needsUpdate = true;
@@ -215,20 +215,19 @@ export class World {
   }
 
   _buildSky(tex) {
-    const g = makeSphere(64, 32);
-    g.scale(-1, 1, 1); // view from inside without mirroring
-    const m = new THREE.MeshBasicMaterial({ map: tex, depthTest: false, depthWrite: false });
+    const m = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, depthTest: false, depthWrite: false });
     m.color.setScalar(1.7);
-    const sky = new THREE.Mesh(g, m);
+    const sky = new THREE.Mesh(makeSphere(64, 32), m);
     sky.scale.setScalar(FAR * 0.4);
     sky.renderOrder = -1000;
     sky.frustumCulled = false;
-    // The panorama is in galactic coordinates with the galactic centre in the
-    // middle (local −X after the mirror) and galactic north up.
-    const gc = new THREE.Vector3().fromArray(A.GALACTIC_CENTRE);
-    const gn = new THREE.Vector3().fromArray(A.GALACTIC_NORTH);
-    const x = gc.clone().negate();
-    const z = new THREE.Vector3().crossVectors(x, gn).normalize();
+    // The panorama is in galactic coordinates: galactic centre in the middle,
+    // longitude increasing leftward and galactic *south* at the top (the Large
+    // Magellanic Cloud sits upper right, Orion upper far right). Seen from
+    // inside the sphere that puts the centre on local +X and south on local +Y.
+    const x = new THREE.Vector3().fromArray(A.GALACTIC_CENTRE);
+    const south = new THREE.Vector3().fromArray(A.GALACTIC_NORTH).negate();
+    const z = new THREE.Vector3().crossVectors(x, south).normalize();
     const y = new THREE.Vector3().crossVectors(z, x).normalize();
     sky.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
     this.scene.add(sky);
@@ -260,7 +259,7 @@ export class World {
     const b = {
       def, id: def.id, group: new THREE.Group(), spin: new THREE.Group(),
       radius: 1, au: [0, 0, 0], offset: new THREE.Vector3(), sunDirL: new THREE.Vector3(1, 0, 0),
-      base, hi: null, tier: '2k', loadingTier: null, blocked: new Set(), parent: null,
+      base, hi: null, tier: def.tex.map.tiers[0], loadingTier: null, blocked: new Set(), parent: null,
       shellOn: true, screen: { x: 0, y: 0, r: 0, depth: 0, visible: false },
     };
     b.group.add(b.spin);
@@ -387,7 +386,7 @@ export class World {
       }
     };
     const kuiper = (rnd) => [38.5 + (rnd() + rnd()) / 2 * 9.5, 7];
-    this.belts = [make(2800, 7, asteroid, '#b9ab98', 0.75), make(2000, 19, kuiper, '#9fb4c8', 0.5)];
+    this.belts = [make(2800, 7, asteroid, '#b9ab98', 0.62), make(2000, 19, kuiper, '#9fb4c8', 0.45)];
   }
 
   _buildSunGlow() {
@@ -501,14 +500,34 @@ export class World {
     return 1 / Math.sin(Math.atan(px / focal));
   }
 
-  _overviewAU() {
-    const aspect = this.camera.aspect;
-    return aspect >= 1.2 ? 31 : aspect >= 0.8 ? 11 : 2.4;
-  }
-
-  _overviewDistance() {
-    const fit = sceneDistance(this._overviewAU(), this.s);
-    return (fit * 1.08) / (Math.tan((this.camera.fov * A.DEG) / 2) * Math.min(this.camera.aspect, 1.65));
+  /**
+   * Camera distance from which the overview orbit, seen from `pitchDeg` above
+   * the ecliptic, just fits the unobstructed part of the view. Wide screens
+   * frame Neptune's orbit; phones frame the inner planets, where a wider shot
+   * would shrink everything to dots.
+   */
+  _overviewDistance(pitchDeg = OVERVIEW_PITCH) {
+    const aspect = this.freeW / this.freeH;
+    const R = sceneDistance(aspect >= 1.2 ? 30.4 : aspect >= 0.8 ? 10 : 2.4, this.s);
+    const p = pitchDeg * A.DEG;
+    const focal = this.height / 2 / Math.tan((this.camera.fov * A.DEG) / 2);
+    const halfW = this.freeW * 0.48, halfH = this.freeH * 0.46;
+    const fits = (D) => {
+      for (let i = 0; i < 48; i++) {
+        const a = (i / 48) * Math.PI * 2;
+        const depth = D - R * Math.sin(a) * Math.cos(p);
+        if (depth <= 0) return false;
+        if (Math.abs((focal * R * Math.cos(a)) / depth) > halfW) return false;
+        if (Math.abs((focal * R * Math.sin(a) * Math.sin(p)) / depth) > halfH) return false;
+      }
+      return true;
+    };
+    let lo = R, hi = R * 40;
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) hi = mid; else lo = mid;
+    }
+    return hi;
   }
 
   _viewDirection(b, yawDeg = 38, pitchDeg = 16) {
@@ -534,10 +553,7 @@ export class World {
       travel: this.controls.target.distanceTo(body.group.position),
     };
     this.controls.enabled = false;
-    if (this.target !== body) {
-      this.target = body;
-      this.hooks.onTarget?.(body);
-    }
+    this.target = body;
   }
 
   /** Frame the whole body (and its rings). */
@@ -556,7 +572,7 @@ export class World {
   surface(id) {
     const b = this.byId[id];
     const alt = b.minAlt * 1.5;
-    this.flyTo(b, this._viewDirection(b, 22, 8), () => b.radius * (1 + alt), 2.6);
+    this.flyTo(b, this._viewDirection(b, 44, 10), () => b.radius * (1 + alt), 2.6);
   }
 
   overview(duration = 2.6) {
@@ -564,14 +580,9 @@ export class World {
     dir.y = 0;
     if (dir.lengthSq() < 1e-12) dir.set(0.3, 0, 0.9);
     dir.normalize();
-    const p = 33 * A.DEG;
+    const p = OVERVIEW_PITCH * A.DEG;
     const to = new THREE.Vector3(dir.x * Math.cos(p), Math.sin(p), dir.z * Math.cos(p));
     this.flyTo(this.byId.sun, to, () => this._overviewDistance(), duration);
-  }
-
-  get isOverview() {
-    if (this.target.id !== 'sun') return false;
-    return this.camera.position.distanceTo(this.controls.target) > this.target.radius * 6;
   }
 
   _stepFly(dt) {
@@ -592,7 +603,6 @@ export class World {
       this.fly = null;
       this.controls.enabled = true;
       this._lastTargetPos.copy(goal);
-      this.hooks.onArrive?.(f.body);
     }
   }
 
@@ -608,8 +618,8 @@ export class World {
 
   resize(width, height) {
     this.width = Math.max(1, width); this.height = Math.max(1, height);
-    this.freeW = Math.min(Math.max(this.freeW, 120), this.width);
-    this.freeH = Math.min(Math.max(this.freeH, 120), this.height);
+    this.freeW = Math.min(this.freeW, this.width);
+    this.freeH = Math.min(this.freeH, this.height);
     this.renderer.setSize(this.width, this.height, false);
     this.camera.aspect = this.width / this.height;
     this._applyViewShift();
@@ -622,7 +632,6 @@ export class World {
   // ── options ──────────────────────────────────────────────────────────────
 
   setTrueScale(on) { this._scaleGoal = on ? 1 : 0; }
-  get trueScale() { return this._scaleGoal === 1; }
   setFill(on) { this._fillGoal = on ? 0.94 : 0; }
   setShell(id, on) {
     const b = this.byId[id];
@@ -656,14 +665,19 @@ export class World {
   }
 
   _wantedTier(b, camDist) {
-    let want = '2k';
+    const channel = b.def.tex.map;
+    let want = channel.tiers[0];
     if (b === this.target) {
-      const alt = camDist / b.radius - 1;
-      want = alt < 2.2 || b.tier === '8k' || b.loadingTier === '8k' ? '8k' : '4k';
+      const top = this.store.maxTier;
+      const near = camDist / b.radius - 1 < 2.2;
+      // Once the top tier is in (or on its way) keep it until the body is left.
+      want = near || b.tier === top || b.loadingTier === top ? top : this.store.farTier;
     }
-    let tier = this.store.pickTier(b.def.tex.map, want);
-    while (b.blocked.has(tier) && tier !== '2k') tier = tier === '8k' ? '4k' : '2k';
-    return this.store.pickTier(b.def.tex.map, tier);
+    let tier = this.store.pickTier(channel, want);
+    while (b.blocked.has(tier) && tier !== channel.tiers[0]) {
+      tier = this.store.pickTier(channel, TIER_ORDER[TIER_ORDER.indexOf(tier) - 1]);
+    }
+    return tier;
   }
 
   async _loadTier(b, tier) {
@@ -683,11 +697,7 @@ export class World {
         const t = this.store.pickTier(channel, tier);
         if (t === channel.tiers[0]) loaded[key] = b.base[key];
         else if (b.hi?.[key]?.userData.tier === t) loaded[key] = b.hi[key];
-        else {
-          const tex = await this.store.loadChannel(channel, t);
-          tex.userData.tier = t;
-          loaded[key] = tex;
-        }
+        else loaded[key] = await this.store.loadChannel(channel, t);
       }));
     } catch (err) {
       console.warn(err);

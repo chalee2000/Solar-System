@@ -13,7 +13,7 @@ const num = (x, digits = 0) => x.toLocaleString('en-US', { minimumFractionDigits
 
 const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const LABEL_PRIORITY = ['sun', 'jupiter', 'saturn', 'earth', 'mars', 'venus', 'mercury', 'uranus', 'neptune', 'pluto', 'moon'];
-const TIER_LABEL = { '2k': '2K', '4k': '4K', '8k': '8K' };
+const TIER_LABEL = { '1k': '1K', '2k': '2K', '4k': '4K', '8k': '8K' };
 
 function lightTime(km) {
   const s = Math.round(km / A.LIGHT_KM_S);
@@ -57,7 +57,7 @@ export class UI {
     const onResize = () => { this._resize(); this.updateViewShift(); };
     new ResizeObserver(onResize).observe(this.app);
     this.desktop.addEventListener('change', onResize);
-    this._resize();
+    onResize();
   }
 
   // ── boot ─────────────────────────────────────────────────────────────────
@@ -78,14 +78,20 @@ export class UI {
       this.toast('ลากเพื่อหมุน เลื่อนล้อเมาส์หรือถ่างนิ้วเพื่อซูม แตะดาวเพื่อดูรายละเอียด', 6500);
       try { localStorage.setItem('solar.helpSeen', '1'); } catch { /* ignore */ }
     }
+    // A link such as …/#saturn opens straight on that body.
+    const fromHash = () => {
+      const id = location.hash.slice(1);
+      if (BODY_BY_ID[id]) { if (id !== this.selected) this.select(id); } else if (this.selected && !location.hash) this.goOverview();
+    };
+    window.addEventListener('hashchange', fromHash);
+    if (BODY_BY_ID[location.hash.slice(1)]) fromHash();
   }
 
-  fatal(message) {
-    const loading = $('loading');
-    loading.hidden = false;
-    loading.classList.remove('done');
-    loading.classList.add('failed');
-    $('loading-text').textContent = message;
+  _setHash(id) {
+    if (location.hash.slice(1) === (id || '')) return;
+    try {
+      history.replaceState(null, '', id ? `#${id}` : location.pathname + location.search);
+    } catch { /* some embedded viewers do not allow rewriting the address */ }
   }
 
   toast(text, ms = 3200) {
@@ -129,16 +135,34 @@ export class UI {
   _buildLabels() {
     const box = $('labels');
     this.labels = {};
+    // Labels never take pointer input themselves, so a drag or pinch that starts
+    // on one still moves the camera; taps on them are resolved by the canvas.
     for (const def of BODIES) {
-      const l = el('button', 'label');
-      l.type = 'button';
-      l.tabIndex = -1;
+      const l = el('div', 'label');
       l.style.setProperty('--c', def.color);
       l.append(el('i'), el('span', null, def.name));
-      l.addEventListener('click', () => this.select(def.id));
       box.append(l);
-      this.labels[def.id] = { node: l, shown: false, dot: false, width: def.name.length * 8.5 + 22 };
+      this.labels[def.id] = { node: l, shown: false, dot: false, measured: false, width: def.name.length * 8.5 + 22 };
     }
+    document.fonts?.ready.then(() => { for (const L of Object.values(this.labels)) L.measured = false; });
+  }
+
+  _labelOffset(sc) { return Math.max(sc.r, 3) + 7; }
+
+  /** Body whose visible name tag covers a screen point, if any. */
+  _labelAt(x, y) {
+    for (const id of LABEL_PRIORITY) {
+      const L = this.labels[id];
+      if (!L.shown) continue;
+      const sc = this.world.byId[id].screen;
+      const left = sc.x + this._labelOffset(sc);
+      if (x >= left - 4 && x <= left + L.width && Math.abs(y - sc.y) <= 13) return this.world.byId[id];
+    }
+    return null;
+  }
+
+  _hitAt(x, y, slop) {
+    return this.world.pick(x, y, slop) || this._labelAt(x, y);
   }
 
   _updateLabels() {
@@ -149,7 +173,7 @@ export class UI {
       const b = w.byId[id], sc = b.screen, L = this.labels[id];
       let show = this.showLabels && sc.visible && sc.x > -40 && sc.x < w.width + 40 && sc.y > -20 && sc.y < w.height + 20;
       // A body that already fills the view needs no tag.
-      if (show && sc.r > Math.min(w.width, w.height) * 0.16) show = false;
+      if (show && sc.r > (id === this.selected ? 24 : Math.min(w.width, w.height) * 0.16)) show = false;
       if (show && b.parent && Math.hypot(sc.x - earth.x, sc.y - earth.y) < 26) show = false;
       if (show) {
         // Hidden behind a nearer body's disc.
@@ -158,7 +182,7 @@ export class UI {
           if (o !== b && os.visible && os.depth < sc.depth && Math.hypot(sc.x - os.x, sc.y - os.y) < os.r) { show = false; break; }
         }
       }
-      const off = Math.max(sc.r, 3) + 7;
+      const off = this._labelOffset(sc);
       const rect = show ? [sc.x - 6, sc.y - 11, sc.x + off + L.width, sc.y + 11] : null;
       if (show && id !== this.selected) {
         for (const p of placed) {
@@ -167,6 +191,7 @@ export class UI {
       }
       if (show !== L.shown) { L.node.classList.toggle('show', show); L.shown = show; }
       if (!show) continue;
+      if (!L.measured) { L.width = L.node.lastChild.offsetWidth; L.measured = true; }
       placed.push(rect);
       const dot = sc.r < 4;
       if (dot !== L.dot) { L.node.classList.toggle('dot', dot); L.dot = dot; }
@@ -194,6 +219,7 @@ export class UI {
     this.world.focus(id);
     this.updateViewShift();
     this._liveAt = 0;
+    this._setHash(id);
   }
 
   closePanel() {
@@ -204,6 +230,7 @@ export class UI {
     for (const btn of Object.values(this.listButtons)) btn.removeAttribute('aria-current');
     setTimeout(() => { if (!this.selected) this.info.hidden = true; }, 280);
     this.updateViewShift();
+    this._setHash(null);
   }
 
   goOverview() {
@@ -532,14 +559,14 @@ export class UI {
       down = null;
       if (moved > 6 || !quick) return;
       const [x, y] = local(e);
-      const hit = this.world.pick(x, y, e.pointerType === 'mouse' ? 12 : 22);
+      const hit = this._hitAt(x, y, e.pointerType === 'mouse' ? 12 : 22);
       if (hit && hit.id !== this.selected) this.select(hit.id);
     });
     c.addEventListener('pointercancel', () => { down = null; });
     c.addEventListener('pointermove', (e) => {
       if (e.pointerType !== 'mouse' || e.buttons) return;
       const [x, y] = local(e);
-      const hit = this.world.pick(x, y, 12);
+      const hit = this._hitAt(x, y, 12);
       c.classList.toggle('hot', !!hit && hit.id !== this.selected);
     });
   }
