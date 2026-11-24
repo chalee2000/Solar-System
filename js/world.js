@@ -9,6 +9,7 @@ import {
 } from './scale.js';
 import * as SH from './shaders.js';
 import { MoonSwarm } from './swarm.js';
+import { PLACES, placeVector } from './places.js';
 import { TextureStore, TIER_WIDTH, TIER_ORDER } from './textures.js';
 
 export { UNIT, sceneDistance, sceneRadius };
@@ -39,6 +40,26 @@ function makeSphere(widthSegments, heightSegments) {
   const g = new THREE.SphereGeometry(1, widthSegments, heightSegments);
   const uv = g.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
+  return g;
+}
+
+// Latitude/longitude grid on a unit sphere in a body's spin frame: meridians
+// every 30°, parallels every 30°; the equator and prime meridian brighter.
+function makeGrid(radius = 1.004) {
+  const pos = [], col = [];
+  const P = (lat, lon) => placeVector(lat, lon).map((c) => c * radius);
+  const seg = (a, b, k) => { pos.push(...a, ...b); col.push(k, k, k, k, k, k); };
+  for (let lon = -180; lon < 180; lon += 30) {
+    const k = lon === 0 ? 1 : 0.55;
+    for (let lat = -88; lat < 88; lat += 4) seg(P(lat, lon), P(lat + 4, lon), k);
+  }
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const k = lat === 0 ? 1 : 0.55;
+    for (let lon = -180; lon < 180; lon += 2.5) seg(P(lat, lon), P(lat, lon + 2.5), k);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   return g;
 }
 
@@ -127,7 +148,9 @@ export class World {
     this._scaleU = 0;      // tween parameter
     this._scaleGoal = 0;
     this._fillGoal = 0;
-    this.options = { orbits: true, belts: true, discovered: false };
+    this.options = { orbits: true, belts: true, discovered: false, placeMap: true };
+    this.surfaceLock = null; // body the camera turns with while looking at a place on it
+    this._lockQ = new THREE.Quaternion();
     this.sysVis = {};      // per planet: how visible its moon system is (0–1)
 
     this.width = 1; this.height = 1;
@@ -322,8 +345,49 @@ export class World {
       b.material.uniforms.uRing.value.set(1, def.ring.inner, def.ring.outer, polar);
     }
 
+    if (PLACES[def.id]) {
+      b.places = PLACES[def.id];
+      b.grid = new THREE.LineSegments(makeGrid(), new THREE.LineBasicMaterial({
+        vertexColors: true, transparent: true, opacity: 0, depthWrite: false,
+      }));
+      b.grid.visible = false;
+      b.grid.renderOrder = 1;
+      b.spin.add(b.grid);
+    }
+
     this.bodies.push(b);
     this.byId[def.id] = b;
+  }
+
+  // ── places on a surface ──────────────────────────────────────────────────
+
+  /** Outward unit vector (scene axes) at a planetocentric latitude / east longitude. */
+  surfaceNormal(b, lat, lon, out = new THREE.Vector3()) {
+    return out.fromArray(placeVector(lat, lon)).applyQuaternion(b.spin.quaternion);
+  }
+
+  /** Scene position of a point on the surface. */
+  surfacePoint(b, lat, lon, out = new THREE.Vector3()) {
+    return out.fromArray(placeVector(lat, lon))
+      .multiply(b.spin.scale).applyQuaternion(b.spin.quaternion).add(b.group.position);
+  }
+
+  /** Fly to look straight down on a place, then keep turning with the planet. */
+  viewPlace(id, place) {
+    const b = this.byId[id];
+    const n = this.surfaceNormal(b, place.lat, place.lon);
+    const rel = place.size ? clamp((place.size / b.def.radiusKm) * 1.5, 0.3, 1.8) : 0.45;
+    this.flyTo(b, n, () => b.radius * (1 + Math.max(rel, b.minAlt * 1.3)), 2.2);
+    this.surfaceLock = b;
+    this._lockQ.copy(b.spin.quaternion);
+  }
+
+  /** Sun elevation in degrees at a place (negative: night). */
+  sunElevation(id, place) {
+    const b = this.byId[id];
+    const n = this.surfaceNormal(b, place.lat, place.lon);
+    const toSun = this._v3.copy(b.group.position).negate().normalize();
+    return Math.asin(clamp(n.dot(toSun), -1, 1)) / A.DEG;
   }
 
   _buildOrbits() {
@@ -615,6 +679,7 @@ export class World {
   flyTo(body, direction, distance, duration = 2.4) {
     const from = this._v1.copy(this.camera.position).sub(this.controls.target);
     if (this.reducedMotion) duration = 0.01;
+    this.surfaceLock = null;
     this.fly = {
       t: 0, duration, body, distance,
       fromTarget: this.controls.target.clone(),
@@ -812,11 +877,19 @@ export class World {
 
     const cam = this.camera;
     const tp = this.target.group.position;
+    // Looking at a place: turn with the planet so the place stays in view.
+    let spinTurn = null;
+    if (this.surfaceLock && this.surfaceLock === this.target) {
+      spinTurn = (this._qTurn ||= new THREE.Quaternion()).copy(this.target.spin.quaternion).multiply(this._lockQ.invert());
+      this._lockQ.copy(this.target.spin.quaternion);
+      if (this.fly) this.fly.toDir.applyQuaternion(spinTurn);
+    }
     if (this.fly) {
       this._stepFly(dt);
     } else {
       // Ride along with the target.
       cam.position.add(this._v1.subVectors(tp, this._lastTargetPos));
+      if (spinTurn) cam.position.sub(tp).applyQuaternion(spinTurn).add(tp);
       this.controls.target.copy(tp);
       this._lastTargetPos.copy(tp);
       const off = this._v1.subVectors(cam.position, tp);
@@ -912,6 +985,11 @@ export class World {
     for (const b of this.bodies) {
       const dist = cp.distanceTo(b.group.position);
       if (b.parent) b.group.visible = !this.undiscovered(b.def) || b === this.target;
+      if (b.grid) {
+        const o = this.options.placeMap && b === this.target ? 0.2 * (1 - smoothstep(b.radius * 6, b.radius * 12, dist)) : 0;
+        b.grid.material.opacity = o;
+        b.grid.visible = o > 0.005;
+      }
       if (b.orbit) {
         const fade = b.parent ? (b.group.visible ? this.sysVis[b.parent.id] : 0) : smoothstep(5, 30, dist / b.radius);
         const o = this.options.orbits ? 0.55 * fade : 0;

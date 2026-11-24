@@ -4,6 +4,7 @@ import { BODIES, SPEEDS, SPEED_OVERVIEW, SPEED_FOCUS } from './data.js';
 import {
   DEFS, SYSTEM_MOONS, MOON_COUNTS, moonFacts, moonDescription, orbitClass, periodText,
 } from './catalog.js';
+import { PLACES, PLACE_KIND_TEXT, coordText } from './places.js';
 
 const BODY_BY_ID = DEFS;
 
@@ -175,6 +176,15 @@ export class UI {
 
   _labelOffset(sc) { return Math.max(sc.r, 3) + 7; }
 
+  /** Width of a tag's text. A hidden tag has no layout, so show it first; the
+   *  end-of-frame pass hides it again if it is not placed. */
+  _measure(L) {
+    if (L.measured) return;
+    if (!L.shown) { L.node.classList.add('show'); L.shown = true; }
+    const width = L.node.lastChild.offsetWidth;
+    if (width > 0) { L.width = width; L.measured = true; }
+  }
+
   /** Body whose visible name tag covers a screen point, if any. */
   _labelAt(x, y) {
     for (const b of this._shown) {
@@ -222,6 +232,7 @@ export class UI {
       }
       const L = show ? this._label(b.def) : this.labels[b.id];
       if (!L) continue;
+      if (show) this._measure(L);
       const off = this._labelOffset(sc);
       const rect = show ? [sc.x - 6, sc.y - 11, sc.x + off + L.width, sc.y + 11] : null;
       if (show && b.id !== this.selected) {
@@ -230,7 +241,6 @@ export class UI {
         }
       }
       if (!show) continue;
-      if (!L.measured) { L.width = L.node.lastChild.offsetWidth; L.measured = true; }
       placed.push(rect);
       next.push(b);
       if (isMoon) moonLabels++;
@@ -313,6 +323,7 @@ export class UI {
         if (open) b = bottom + this.info.offsetHeight;
       }
       b = Math.min(b, H * 0.7);
+      this._free = { left: l, top: t, right: W - r, bottom: H - b };
       this.world.setViewShift((r - l) / 2, (b - t) / 2, W - l - r, H - t - b);
     };
     apply();
@@ -329,7 +340,13 @@ export class UI {
       this.world.surface(this.selected);
       if (!this.desktop.matches) this._setSheet(false);
     });
-    $('btn-whole').addEventListener('click', () => this.selected && this.world.focus(this.selected));
+    $('btn-whole').addEventListener('click', () => {
+      if (!this.selected) return;
+      this.world.focus(this.selected);
+      this.place = null;
+      $('place-card').hidden = true;
+      for (const btn of document.querySelectorAll('.place-row')) btn.removeAttribute('aria-current');
+    });
     $('shell-input').addEventListener('change', (e) => this.selected && this.world.setShell(this.selected, e.target.checked));
     $('info-grip').addEventListener('click', () => this._setSheet(!this.sheetOpen));
     $('info-head').addEventListener('click', (e) => {
@@ -337,6 +354,7 @@ export class UI {
     });
     $('btn-overview').addEventListener('click', () => this.goOverview());
     $('moons-sort').addEventListener('change', () => this._renderMoonList());
+    $('places-input').addEventListener('change', (e) => { this.world.options.placeMap = e.target.checked; });
     $('moons-more').addEventListener('click', () => {
       this._moonsAll = !this._moonsAll;
       this._renderMoonList();
@@ -409,6 +427,7 @@ export class UI {
 
     this._fillCompare(def);
     this._fillMoons(def);
+    this._fillPlaces(def);
     this.updateSurfaceStatus(this.world.byId[def.id]);
   }
 
@@ -459,6 +478,127 @@ export class UI {
       text(x0 + dBody + gap + dRef / 2, ref.name);
     }
     box.replaceChildren(svg);
+  }
+
+  // ── places on a planet's surface ──────────────────────────────────────────
+
+  _fillPlaces(def) {
+    const places = PLACES[def.id];
+    $('places-section').hidden = !places;
+    this.place = null;
+    $('place-card').hidden = true;
+    if (!places) return;
+    $('places-title').textContent = `แผนที่${def.name}`;
+    $('places-input').checked = this.world.options.placeMap;
+    const row = (p) => {
+      const li = el('li');
+      const btn = el('button', `place-row ${p.kind === 'site' ? 'is-site' : ''}`);
+      btn.type = 'button';
+      btn.append(el('i'), el('span', 'place-row-name', p.name),
+        el('span', 'place-row-meta', p.kind === 'site' ? p.date.replace(/^.* (\d{4})$/, '$1') : PLACE_KIND_TEXT[p.kind]));
+      btn.addEventListener('click', () => this.showPlace(p));
+      li.append(btn);
+      return li;
+    };
+    const year = (p) => +p.date.match(/\d{4}/)[0];
+    $('places-sites').replaceChildren(...places.filter((p) => p.kind === 'site').sort((a, b) => year(a) - year(b)).map(row));
+    $('places-features').replaceChildren(...places.filter((p) => p.kind !== 'site').map(row));
+  }
+
+  /** Fly to a place on the selected planet and describe it. */
+  showPlace(p) {
+    const id = this.selected;
+    if (!PLACES[id]?.includes(p)) return;
+    this.place = p;
+    if (!this.world.options.placeMap) { this.world.options.placeMap = true; $('places-input').checked = true; }
+    const card = $('place-card');
+    $('place-kind').textContent = p.kind === 'site' ? `จุดลงจอด · ${p.agency} · ${p.date}` : PLACE_KIND_TEXT[p.kind];
+    $('place-name').textContent = p.name;
+    $('place-en').textContent = p.en;
+    $('place-coord').textContent = coordText(p.lat, p.lon);
+    $('place-desc').textContent = p.desc;
+    card.hidden = false;
+    for (const btn of document.querySelectorAll('.place-row')) btn.removeAttribute('aria-current');
+    [...document.querySelectorAll('.place-row')].find((b) => b.querySelector('.place-row-name').textContent === p.name)
+      ?.setAttribute('aria-current', 'true');
+    this.world.viewPlace(id, p);
+    if (!this.desktop.matches) this._setSheet(false);
+    // A place on the night side would be dark: light it.
+    if (this.world.sunElevation(id, p) < 4 && !$('opt-fill').checked) {
+      $('opt-fill').checked = true;
+      this.world.setFill(true);
+      this.toast(`ขณะนี้เป็นเวลากลางคืนที่${p.name} จึงเปิดการส่องสว่างด้านมืดให้ ปิดได้ในเมนูการแสดงผล`, 5200);
+    }
+  }
+
+  /** Name tags pinned to the surface of the selected planet. */
+  _updatePlaceLabels() {
+    const w = this.world;
+    const b = w.byId[this.selected];
+    const places = b && PLACES[b.id];
+    const on = places && w.options.placeMap && w.target === b && b.screen.visible;
+    const shown = new Set();
+    if (on) {
+      const cam = w.camera.position;
+      const v = this._pv ||= new w.camera.position.constructor();
+      const n = this._pn ||= new w.camera.position.constructor();
+      const discPx = b.screen.r;
+      const placed = [];
+      // The chosen place first, then landing sites, then landforms by size.
+      const order = [...places].sort((a, c) => (c === this.place) - (a === this.place)
+        || (c.kind === 'site') - (a.kind === 'site') || (c.size || 0) - (a.size || 0));
+      for (const p of order) {
+        w.surfacePoint(b, p.lat, p.lon, v);
+        w.surfaceNormal(b, p.lat, p.lon, n);
+        const toCam = this._pt ||= new w.camera.position.constructor();
+        toCam.subVectors(cam, v);
+        const facing = n.dot(toCam.normalize());
+        if (facing < 0.22) continue; // keep tags off the planet's edge
+        // Landforms appear once they span enough of the screen; sites once the planet is large.
+        const spanPx = p.size ? (p.size / b.def.radiusKm) * discPx : 0;
+        if (p !== this.place && (p.kind === 'site' ? discPx < 90 : spanPx < 34)) continue;
+        v.project(w.camera);
+        if (v.z > 1) continue;
+        const x = (v.x * 0.5 + 0.5) * w.width, y = (-v.y * 0.5 + 0.5) * w.height;
+        // Only inside the open part of the view, clear of the bars and panels.
+        const f = this._free || { left: 0, top: 0, right: w.width, bottom: w.height };
+        if (x < f.left + 4 || x > f.right - 40 || y < f.top + 10 || y > f.bottom - 10) continue;
+        const L = this._placeLabel(p);
+        this._measure(L);
+        const rect = [x - 6, y - 10, x + 10 + L.width, y + 10];
+        if (p !== this.place && placed.some((q) => rect[0] < q[2] && rect[2] > q[0] && rect[1] < q[3] && rect[3] > q[1])) continue;
+        placed.push(rect);
+        shown.add(p);
+        L.node.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        L.node.style.opacity = Math.min(1, (facing - 0.22) / 0.18).toFixed(2);
+        L.node.classList.toggle('current', p === this.place);
+        L.x = x; L.y = y;
+      }
+    }
+    for (const [p, L] of this.placeLabels || []) {
+      const show = shown.has(p);
+      if (show !== L.shown) { L.node.classList.toggle('show', show); L.shown = show; }
+    }
+  }
+
+  _placeLabel(p) {
+    this.placeLabels ||= new Map();
+    let L = this.placeLabels.get(p);
+    if (L) return L;
+    const node = el('div', `place-label ${p.kind === 'site' ? 'is-site' : ''}`);
+    node.append(el('i'), el('span', null, p.kind === 'site' ? `${p.name} · ${p.date.match(/\d{4}/)[0]}` : p.name));
+    this.labelBox.append(node);
+    L = { node, shown: false, measured: false, width: 80, x: 0, y: 0 };
+    this.placeLabels.set(p, L);
+    return L;
+  }
+
+  /** Place whose tag covers a screen point, if any. */
+  _placeAt(x, y) {
+    for (const [p, L] of this.placeLabels || []) {
+      if (L.shown && x >= L.x - 8 && x <= L.x + 12 + L.width && Math.abs(y - L.y) <= 11) return p;
+    }
+    return null;
   }
 
   // ── moons of a planet ─────────────────────────────────────────────────────
@@ -759,6 +899,8 @@ export class UI {
       down = null;
       if (moved > 6 || !quick) return;
       const [x, y] = local(e);
+      const place = this._placeAt(x, y);
+      if (place) { this.showPlace(place); return; }
       const hit = this._hitAt(x, y, e.pointerType === 'mouse' ? 12 : 22);
       if (hit && hit.id !== this.selected) this.select(hit.id);
     });
@@ -767,7 +909,7 @@ export class UI {
       if (e.pointerType !== 'mouse' || e.buttons) return;
       const [x, y] = local(e);
       const hit = this._hitAt(x, y, 12);
-      c.classList.toggle('hot', !!hit && hit.id !== this.selected);
+      c.classList.toggle('hot', !!this._placeAt(x, y) || (!!hit && hit.id !== this.selected));
     });
   }
 
@@ -790,6 +932,7 @@ export class UI {
 
   frame(now) {
     this._updateLabels();
+    this._updatePlaceLabels();
     this._updateClock();
     if (this.selected && now - this._liveAt > 250) { this._liveAt = now; this._updateLive(); }
   }

@@ -61,6 +61,26 @@
       </label>
       <p id="info-desc" class="info-desc"></p>
 
+      <section id="places-section" class="info-section" hidden>
+        <h3 id="places-title">แผนที่</h3>
+        <label class="switch">
+          <input id="places-input" type="checkbox" checked>
+          <span class="switch-track" aria-hidden="true"></span>
+          <span class="switch-text">ชื่อสถานที่และเส้นพิกัดบนดาว</span>
+        </label>
+        <div id="place-card" class="place-card" hidden>
+          <p id="place-kind" class="place-kind"></p>
+          <h4 id="place-name"></h4>
+          <p id="place-en" class="place-en"></p>
+          <p id="place-coord" class="place-coord"></p>
+          <p id="place-desc" class="place-desc"></p>
+        </div>
+        <h4 class="places-sub">จุดลงจอดของยานสำรวจ</h4>
+        <ul id="places-sites" class="places-list"></ul>
+        <h4 class="places-sub">ภูมิประเทศสำคัญ</h4>
+        <ul id="places-features" class="places-list"></ul>
+      </section>
+
       <section class="info-section">
         <h3>ตำแหน่งขณะนี้</h3>
         <div id="info-live" class="live"></div>
@@ -183,6 +203,7 @@
         <div><dt>ซูม</dt><dd>เลื่อนล้อเมาส์ ถ่างหรือหุบสองนิ้ว หรือกดปุ่มบวกลบค้างไว้ ซูมเข้าได้จนชิดพื้นผิว</dd></div>
         <div><dt>เลือกดาว</dt><dd>แตะดาว ป้ายชื่อ หรือรายชื่อดาว กล้องจะบินไปหาและเปิดรายละเอียด</dd></div>
         <div><dt>ดูพื้นผิว</dt><dd>กดปุ่มลงไปดูพื้นผิว ภาพความละเอียดสูงจะโหลดเมื่อเข้าใกล้</dd></div>
+        <div><dt>แผนที่ดาวอังคาร</dt><dd>เลือกดาวอังคารแล้วดูรายชื่อภูมิประเทศและจุดลงจอดของยานสำรวจในแผงรายละเอียด แตะชื่อเพื่อบินไปดู กล้องจะหมุนตามดาวให้สถานที่นั้นอยู่กลางจอ</dd></div>
         <div><dt>ดวงจันทร์</dt><dd>เลือกดาวเคราะห์แล้วดูรายชื่อดวงจันทร์ทั้งหมดในแผงรายละเอียด ดวงจันทร์ดวงเล็กจะปรากฏเป็นจุดเมื่อกล้องอยู่ใกล้ดาวเคราะห์ดวงนั้น</dd></div>
         <div><dt>เวลา</dt><dd>เลื่อนแถบเพื่อเร่งหรือชะลอ กดวันที่เพื่อกระโดดไปวันอื่น กด Space เพื่อหยุดหรือเล่นต่อ</dd></div>
         <div><dt>ภาพรวม</dt><dd>กดปุ่มวงโคจรทางขวา หรือกด Esc</dd></div>
