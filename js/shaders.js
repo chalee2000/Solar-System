@@ -3,7 +3,7 @@
 // precision each frame, which keeps things stable when a planet is millions of
 // times smaller than its distance from the origin (true-scale mode).
 
-const NOISE = /* glsl */ `
+export const NOISE = /* glsl */ `
 float hash31(vec3 p) {
   p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
   p *= 17.0;
@@ -354,6 +354,115 @@ void main() {
   vec2 c = gl_PointCoord - 0.5;
   float a = smoothstep(0.5, 0.15, length(c));
   gl_FragColor = vec4(uColor * vBright, a * uOpacity);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}
+`;
+
+// Small moons, drawn as instanced lumpy spheres: each instance gets its own
+// seed, lumpiness and grey level; facets come from screen-space derivatives.
+export const SWARM_VERT = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute float aSeed;
+attribute float aLump;
+attribute float aAlbedo;
+varying vec3 vPosV;
+varying vec3 vObj;
+varying vec3 vNormalV;
+varying float vAlb;
+${NOISE}
+vec3 lumpy(vec3 dir) {
+  float n = fbm(dir * 1.35 + vec3(aSeed * 17.0, aSeed * 5.0, aSeed * 11.0));
+  return dir * (1.0 + aLump * (n - 0.5) * 1.8);
+}
+void main() {
+  vec3 dir = normalize(position);
+  vec3 p = lumpy(dir);
+#ifdef SMOOTH
+  // Close-up copy: a normal from the shape of the surface around this vertex.
+  vec3 t = normalize(cross(abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), dir));
+  vec3 bt = cross(dir, t);
+  float h = 0.02;
+  vec3 pt = lumpy(normalize(dir + t * h)), pb = lumpy(normalize(dir + bt * h));
+  vNormalV = normalize(normalMatrix * mat3(instanceMatrix) * normalize(cross(pt - p, pb - p)));
+#else
+  vNormalV = vec3(0.0);
+#endif
+  vec4 mv = modelViewMatrix * instanceMatrix * vec4(p, 1.0);
+  vPosV = mv.xyz;
+  vObj = p + aSeed * 3.0;
+  vAlb = aAlbedo;
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}
+`;
+
+export const SWARM_FRAG = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform vec3 uSunPosV;
+uniform float uFill;
+varying vec3 vPosV;
+varying vec3 vObj;
+varying vec3 vNormalV;
+varying float vAlb;
+${NOISE}
+void main() {
+  #include <logdepthbuf_fragment>
+#ifdef SMOOTH
+  vec3 N = normalize(vNormalV);
+  // Small craters and grit as a bump on top of the smooth shape.
+  float b0 = fbm(vObj * 9.0);
+  vec3 gx = dFdx(vPosV), gy = dFdy(vPosV);
+  float bx = dFdx(b0), by = dFdy(b0);
+  vec3 r1 = cross(gy, N), r2 = cross(N, gx);
+  float det = dot(gx, r1);
+  N = normalize(abs(det) * N - sign(det) * (bx * r1 + by * r2) * length(gx + gy) * 6.0);
+#else
+  vec3 N = normalize(cross(dFdx(vPosV), dFdy(vPosV)));
+#endif
+  vec3 L = normalize(uSunPosV - vPosV);
+  float diff = max(dot(N, L), 0.0);
+  float mottling = 0.82 + 0.36 * vnoise(vObj * 6.0);
+  vec3 base = vec3(vAlb) * vec3(1.04, 1.0, 0.95) * mottling;
+  vec3 col = base * (mix(diff, 1.0, uFill) + 0.015);
+  gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}
+`;
+
+// Constant-size dots marking moons too small to see as discs.
+export const DOT_VERT = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec3 color;
+attribute float alpha;
+uniform float uSize;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  vColor = color;
+  vAlpha = alpha;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mv;
+  gl_PointSize = uSize;
+  #include <logdepthbuf_vertex>
+}
+`;
+
+export const DOT_FRAG = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform float uOpacity;
+varying vec3 vColor;
+varying float vAlpha;
+void main() {
+  #include <logdepthbuf_fragment>
+  float a = smoothstep(0.5, 0.2, length(gl_PointCoord - 0.5)) * vAlpha * uOpacity;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(vColor, a);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }

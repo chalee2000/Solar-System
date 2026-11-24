@@ -231,3 +231,82 @@ export function moonPhase(d) {
   const cosPsi = dot(moonDir, sunDir);
   return { illuminated: (1 - cosPsi) / 2, waxing: elong < 180, elongation: elong };
 }
+
+// ── planetary satellites ──────────────────────────────────────────────────
+//
+// Mean elements from JPL (see js/moons-data.js) describe a precessing ellipse
+// in a reference plane: the ecliptic, the satellite's local Laplace plane, or
+// the planet's equator. The node is measured from where that plane crosses
+// the ICRF equator. Good for showing where each moon is and how its orbit is
+// shaped; JPL notes they are not meant for precise ephemerides.
+
+const ECLIPTIC_POLE_DEC = 90 - OBLIQUITY / DEG;
+
+function satelliteBasis(el, parent) {
+  if (el._basis) return el._basis;
+  let ra, dec;
+  if (el.f === 'ecl') { ra = 270; dec = ECLIPTIC_POLE_DEC; }
+  else if (el.f === 'lap') { ra = el.ra; dec = el.de; }
+  else {
+    // The planet's equator, oriented by its spin (right-hand rule): for Uranus,
+    // which spins backwards, that is the opposite of the IAU north pole.
+    const [pra, pdec, , wd] = ROTATION[parent];
+    [ra, dec] = wd < 0 ? [pra + 180, -pdec] : [pra, pdec];
+  }
+  const Z = raDecToScene(ra, dec);
+  const X = raDecToScene(ra + 90, 0);
+  Object.defineProperty(el, '_basis', { value: { X, Y: cross(Z, X), Z }, enumerable: false });
+  return el._basis;
+}
+
+/**
+ * Mean elements of a satellite at day d: angles in radians.
+ * `dn` (deg/day) and the epoch mean anomaly come out of tools/calibrate_moons.mjs,
+ * which anchors each orbit's phase to JPL Horizons positions in 2000–2028.
+ */
+export function satelliteElements(el, d) {
+  const years = (d - el.ep) / 365.25;
+  const sense = el.i <= 90 ? 1 : -1;
+  // Apsides advance; nodes regress for prograde orbits and advance for retrograde ones.
+  const dw = el.Pw ? 360 * years / el.Pw : 0;
+  const dO = el.Po ? -sense * 360 * years / el.Po : 0;
+  // P is the sidereal period: the moon's direction in space advances at
+  // 360°/P whatever its apsides and node do. (For near-circular orbits JPL's
+  // apsidal periods can be tiny and meaningless; this keeps them harmless.)
+  const dM = (360 / el.P + (el.dn || 0)) * (d - el.ep) - dw - sense * dO;
+  return {
+    a: el.a, e: el.e, i: el.i * DEG,
+    w: (el.w + dw) * DEG, node: (el.o + dO) * DEG, M: (el.M + dM) * DEG,
+  };
+}
+
+/** Planet-centred position of a satellite in km, scene axes. */
+export function satellitePosition(el, parent, d, out = [0, 0, 0]) {
+  const k = satelliteElements(el, d);
+  const E = solveKepler(k.M, k.e);
+  const xp = k.a * (Math.cos(E) - k.e);
+  const yp = k.a * Math.sqrt(1 - k.e * k.e) * Math.sin(E);
+  const p = planeToEcliptic(xp, yp, k.w, k.node, k.i, [0, 0, 0]);
+  const { X, Y, Z } = satelliteBasis(el, parent);
+  for (let j = 0; j < 3; j++) out[j] = p[0] * X[j] + p[1] * Y[j] + p[2] * Z[j];
+  return out;
+}
+
+/** n points around a satellite's orbit (km, scene axes) for the elements at day d. */
+export function satelliteOrbit(el, parent, d, n = 128, out = new Float64Array(n * 3)) {
+  const k = satelliteElements(el, d);
+  const { X, Y, Z } = satelliteBasis(el, parent);
+  const b = k.a * Math.sqrt(1 - k.e * k.e);
+  const p = [0, 0, 0];
+  for (let s = 0; s < n; s++) {
+    const E = (s / n) * 2 * Math.PI;
+    planeToEcliptic(k.a * (Math.cos(E) - k.e), b * Math.sin(E), k.w, k.node, k.i, p);
+    for (let j = 0; j < 3; j++) out[s * 3 + j] = p[0] * X[j] + p[1] * Y[j] + p[2] * Z[j];
+  }
+  return out;
+}
+
+/** Pole of the plane a satellite orbits in (scene axes): its reference plane's pole. */
+export function satellitePole(el, parent) {
+  return satelliteBasis(el, parent).Z;
+}

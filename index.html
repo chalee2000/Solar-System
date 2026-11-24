@@ -69,11 +69,29 @@
         <h3>ข้อมูลสำคัญ</h3>
         <dl id="info-facts" class="facts"></dl>
       </section>
+      <section id="moons-section" class="info-section" hidden>
+        <h3 id="moons-title">ดวงจันทร์</h3>
+        <p id="moons-summary" class="moons-summary"></p>
+        <div id="moons-chart" class="moons-chart"></div>
+        <div class="moons-tools">
+          <label for="moons-sort">เรียงตาม</label>
+          <select id="moons-sort">
+            <option value="year">ปีที่ค้นพบ</option>
+            <option value="distance">ระยะห่างจากดาวเคราะห์</option>
+            <option value="size">ขนาด</option>
+          </select>
+        </div>
+        <div id="moons-head" class="moons-head" aria-hidden="true">
+          <span>ชื่อ</span><span>ค้นพบ</span><span class="moons-col-meta">คาบการโคจร</span>
+        </div>
+        <ol id="moons-list" class="moons-list"></ol>
+        <button id="moons-more" class="action" type="button">แสดงทั้งหมด</button>
+      </section>
       <section id="compare-section" class="info-section">
-        <h3>ขนาดเทียบกับโลก</h3>
+        <h3 id="compare-title">ขนาดเทียบกับโลก</h3>
         <div id="info-compare" class="compare"></div>
       </section>
-      <section class="info-section">
+      <section id="trivia-section" class="info-section">
         <h3>เกร็ดน่ารู้</h3>
         <ul id="info-trivia" class="trivia"></ul>
       </section>
@@ -136,6 +154,11 @@
       <span class="switch-text">แถบดาวเคราะห์น้อยและแถบไคเปอร์</span>
     </label>
     <label class="switch">
+      <input id="opt-discovered" type="checkbox">
+      <span class="switch-track" aria-hidden="true"></span>
+      <span class="switch-text">ดวงจันทร์ตามปีที่ค้นพบ<small>ซ่อนดวงจันทร์ที่ยังไม่ถูกค้นพบ ณ ปีที่แสดง</small></span>
+    </label>
+    <label class="switch">
       <input id="opt-fill" type="checkbox">
       <span class="switch-track" aria-hidden="true"></span>
       <span class="switch-text">ส่องสว่างด้านมืด<small>เห็นพื้นผิวทั้งดวงแม้อยู่ด้านกลางคืน</small></span>
@@ -160,14 +183,17 @@
         <div><dt>ซูม</dt><dd>เลื่อนล้อเมาส์ ถ่างหรือหุบสองนิ้ว หรือกดปุ่มบวกลบค้างไว้ ซูมเข้าได้จนชิดพื้นผิว</dd></div>
         <div><dt>เลือกดาว</dt><dd>แตะดาว ป้ายชื่อ หรือรายชื่อดาว กล้องจะบินไปหาและเปิดรายละเอียด</dd></div>
         <div><dt>ดูพื้นผิว</dt><dd>กดปุ่มลงไปดูพื้นผิว ภาพความละเอียดสูงจะโหลดเมื่อเข้าใกล้</dd></div>
+        <div><dt>ดวงจันทร์</dt><dd>เลือกดาวเคราะห์แล้วดูรายชื่อดวงจันทร์ทั้งหมดในแผงรายละเอียด ดวงจันทร์ดวงเล็กจะปรากฏเป็นจุดเมื่อกล้องอยู่ใกล้ดาวเคราะห์ดวงนั้น</dd></div>
         <div><dt>เวลา</dt><dd>เลื่อนแถบเพื่อเร่งหรือชะลอ กดวันที่เพื่อกระโดดไปวันอื่น กด Space เพื่อหยุดหรือเล่นต่อ</dd></div>
         <div><dt>ภาพรวม</dt><dd>กดปุ่มวงโคจรทางขวา หรือกด Esc</dd></div>
       </dl>
       <h3>เกี่ยวกับแบบจำลอง</h3>
       <p>ตำแหน่งของดาวเคราะห์คำนวณจากองค์ประกอบวงโคจรของ NASA JPL ตามวันและเวลาที่แสดง ดวงจันทร์ใช้สูตรจาก Astronomical Almanac และการหมุนรอบตัวเองใช้แบบจำลองของ IAU ด้านกลางวันกลางคืนของโลกจึงตรงกับเวลาจริง</p>
-      <p>มุมมองปกติย่อระยะห่างและขยายขนาดดาวเพื่อให้เห็นทุกดวงพร้อมกัน เปิดมาตราส่วนจริงในเมนูการแสดงผลเพื่อดูสัดส่วนตามจริง</p>
+      <p>ดวงจันทร์ทุกดวงที่ค้นพบแล้ว รวมปีที่ค้นพบ ผู้ค้นพบ และวงโคจร มาจากตารางดาวบริวารของ NASA JPL ตำแหน่งในวงโคจรเทียบกับระบบ Horizons ของ JPL จึงใกล้เคียงจริงที่สุดในช่วงปี 2016 ถึง 2036</p>
+      <p>มุมมองปกติย่อระยะห่างและขยายขนาดดาวเพื่อให้เห็นทุกดวงพร้อมกัน ระบบดวงจันทร์ก็ถูกย่อเช่นกัน ดวงจันทร์ที่อยู่ไกลมากจะถูกดึงเข้ามาใกล้ดาวเคราะห์ เปิดมาตราส่วนจริงในเมนูการแสดงผลเพื่อดูสัดส่วนตามจริง</p>
       <h3>ที่มาของภาพ</h3>
-      <p>ภาพพื้นผิวดวงอาทิตย์ ดาวเคราะห์ ดวงจันทร์ และทางช้างเผือก จาก Solar System Scope ภายใต้สัญญาอนุญาต CC BY 4.0 ซึ่งสร้างจากข้อมูลของ NASA ภาพพื้นผิวดาวพลูโตจาก NASA, Johns Hopkins APL และ SwRI แสดงผลด้วย three.js</p>
+      <p>ภาพพื้นผิวดวงอาทิตย์ ดาวเคราะห์ ดวงจันทร์ของโลก และทางช้างเผือก จาก Solar System Scope ภายใต้สัญญาอนุญาต CC BY 4.0 ซึ่งสร้างจากข้อมูลของ NASA</p>
+      <p>แผนที่ดาวพลูโต ยูโรปา คัลลิสโต และดวงจันทร์น้ำแข็งของดาวเสาร์ จาก NASA, JPL, USGS, Space Science Institute, Johns Hopkins APL และ SwRI แผนที่ดวงจันทร์ดวงอื่นจากโครงการ Celestia ภายใต้สัญญาอนุญาต CC BY และ CC BY-SA รายละเอียดอยู่ในไฟล์ textures/SOURCES.md แสดงผลด้วย three.js</p>
     </div>
   </div>
 

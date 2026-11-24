@@ -3,20 +3,15 @@ import * as THREE from '../vendor/three/three.module.min.js';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import * as A from './astro.js';
 import { BODIES } from './data.js';
+import { MINOR_MOONS, SYSTEM_MOONS, orbitClass } from './catalog.js';
+import {
+  UNIT, DIST_EXP, sceneDistance, sceneRadius, lunarSceneDistance, satelliteSceneDistance,
+} from './scale.js';
 import * as SH from './shaders.js';
+import { MoonSwarm } from './swarm.js';
 import { TextureStore, TIER_WIDTH, TIER_ORDER } from './textures.js';
 
-// ── scale model ────────────────────────────────────────────────────────────
-// s = 0: "compressed" — distances follow a^0.4 and radii (R/R⊕)^0.45 so every
-//        body is visible in one view.
-// s = 1: true scale — 1 AU = UNIT scene units and radii in the same units.
-// In between, both are interpolated geometrically (linearly in log space).
-export const UNIT = 50;
-const DIST_EXP = 0.4;
-const SIZE_EXP = 0.45;
-const SIZE_K = 1.5;
-const EARTH_R_TRUE = (UNIT * A.EARTH_RADIUS_KM) / A.AU_KM;
-const MOON_COMPRESSED = 2.8; // Moon's orbit radius, in Earth radii, when compressed
+export { UNIT, sceneDistance, sceneRadius };
 const FAR = 4e5;
 const MIN_MS = Date.UTC(1000, 0, 1);
 const MAX_MS = Date.UTC(3000, 0, 1);
@@ -25,17 +20,6 @@ const ORBIT_SEGMENTS = 720;
 const MOON_ORBIT_SEGMENTS = 120;
 const OVERVIEW_PITCH = 33; // degrees above the ecliptic
 
-export function sceneDistance(au, s) {
-  return UNIT * Math.pow(au, DIST_EXP + (1 - DIST_EXP) * s);
-}
-export function sceneRadius(km, s) {
-  const rho = km / A.EARTH_RADIUS_KM;
-  return Math.pow(SIZE_K * Math.pow(rho, SIZE_EXP), 1 - s) * Math.pow(EARTH_R_TRUE * rho, s);
-}
-function moonSceneDistance(km, parentKm, s) {
-  const compressed = sceneRadius(parentKm, 0) * MOON_COMPRESSED * (km / A.MOON_MEAN_DISTANCE_KM);
-  return Math.pow(compressed, 1 - s) * Math.pow((UNIT * km) / A.AU_KM, s);
-}
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -143,7 +127,8 @@ export class World {
     this._scaleU = 0;      // tween parameter
     this._scaleGoal = 0;
     this._fillGoal = 0;
-    this.options = { orbits: true, belts: true };
+    this.options = { orbits: true, belts: true, discovered: false };
+    this.sysVis = {};      // per planet: how visible its moon system is (0–1)
 
     this.width = 1; this.height = 1;
     this.freeW = Infinity; this.freeH = Infinity; // unobstructed part of the view, set by the UI
@@ -192,6 +177,9 @@ export class World {
     for (const def of BODIES) this._buildBody(def, base[def.id], saturnRing);
     for (const b of this.bodies) if (b.def.parent) b.parent = this.byId[b.def.parent];
     this._buildOrbits();
+    this.swarm = new MoonSwarm(this, MINOR_MOONS);
+    for (const b of this.swarm.bodies) this.byId[b.id] = b;
+    this._buildSystems();
     this._buildBelts();
     this._buildSunGlow();
 
@@ -341,7 +329,7 @@ export class World {
   _buildOrbits() {
     for (const b of this.bodies) {
       if (b.id === 'sun') continue;
-      const n = b.parent ? MOON_ORBIT_SEGMENTS + 1 : ORBIT_SEGMENTS;
+      const n = b.parent ? MOON_ORBIT_SEGMENTS + 1 : ORBIT_SEGMENTS; // moons: closed Line
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
       const m = new THREE.LineBasicMaterial({ color: b.def.color, transparent: true, opacity: 0.55, depthWrite: false });
@@ -349,6 +337,35 @@ export class World {
       b.orbit.frustumCulled = false;
       (b.parent ? b.parent.group : this.scene).add(b.orbit);
     }
+  }
+
+  /** Planets that have moons, with the reach of their regular moons (km). */
+  _buildSystems() {
+    this.systems = [];
+    for (const [id, list] of Object.entries(SYSTEM_MOONS)) {
+      const planet = this.byId[id];
+      let reachKm = 0, fullKm = 0;
+      for (const def of list) {
+        const el = def.data?.el;
+        const a = el ? el.a : A.MOON_MEAN_DISTANCE_KM;
+        if (!el || !orbitClass(def.data).irregular) reachKm = Math.max(reachKm, a);
+        fullKm = Math.max(fullKm, el ? a * (1 + el.e) : a);
+      }
+      this.systems.push({ planet, reachKm, fullKm });
+      this.sysVis[id] = 0;
+    }
+  }
+
+  /** Scene distance from a planet to one of its moons, given the moon's distance in km. */
+  _moonDistance(b, km, s) {
+    return b.id === 'moon'
+      ? lunarSceneDistance(km, b.parent.def.radiusKm, s)
+      : satelliteSceneDistance(km, b.parent.def.radiusKm, s);
+  }
+
+  /** Hidden by the "moons discovered by the shown date" option. */
+  undiscovered(def) {
+    return this.options.discovered && !!def.data && def.data.y > new Date(this.simMs).getUTCFullYear();
   }
 
   _buildBelts() {
@@ -418,8 +435,16 @@ export class World {
   _place(d) {
     const s = this.s, t = this._t3;
     for (const b of this.bodies) {
-      b.radius = sceneRadius(b.def.radiusKm, s);
-      b.spin.scale.set(b.radius, b.radius * (1 - b.def.flattening), b.radius);
+      const ax = b.def.axes;
+      if (ax) {
+        // Triaxial moons: long axis toward the planet (x), shortest along the spin (y).
+        const k = sceneRadius(b.def.radiusKm, s) / b.def.radiusKm;
+        b.spin.scale.set(ax[0] * k, ax[2] * k, ax[1] * k);
+        b.radius = Math.max(...ax) * k;
+      } else {
+        b.radius = sceneRadius(b.def.radiusKm, s);
+        b.spin.scale.set(b.radius, b.radius * (1 - b.def.flattening), b.radius);
+      }
       if (b.id === 'sun') {
         b.group.position.set(0, 0, 0);
       } else if (!b.def.parent) {
@@ -431,19 +456,35 @@ export class World {
     }
     for (const b of this.bodies) {
       if (!b.parent) continue;
-      A.moonGeocentric(d, t);
-      const km = Math.hypot(t[0], t[1], t[2]);
-      const k = moonSceneDistance(km, b.parent.def.radiusKm, s) / km;
-      b.offset.set(t[0] * k, t[2] * k, -t[1] * k);
+      if (b.id === 'moon') {
+        A.moonGeocentric(d, t); // ecliptic km
+        const km = Math.hypot(t[0], t[1], t[2]);
+        const k = this._moonDistance(b, km, s) / km;
+        b.offset.set(t[0] * k, t[2] * k, -t[1] * k);
+        for (let i = 0; i < 3; i++) b.au[i] = b.parent.au[i] + t[i] / A.AU_KM;
+      } else {
+        A.satellitePosition(b.def.data.el, b.def.parent, d, t); // scene axes, km
+        const km = Math.hypot(t[0], t[1], t[2]);
+        const k = this._moonDistance(b, km, s) / km;
+        b.offset.set(t[0] * k, t[1] * k, t[2] * k);
+        b.au[0] = b.parent.au[0] + t[0] / A.AU_KM;
+        b.au[1] = b.parent.au[1] - t[2] / A.AU_KM;
+        b.au[2] = b.parent.au[2] + t[1] / A.AU_KM;
+      }
       b.group.position.copy(b.parent.group.position).add(b.offset);
-      for (let i = 0; i < 3; i++) b.au[i] = b.parent.au[i] + t[i] / A.AU_KM;
     }
+    this.swarm?.place(d, s);
 
     const x = this._v1, y = this._v2, z = this._v3;
     for (const b of this.bodies) {
-      const toEarth = b.parent ? [-b.offset.x, -b.offset.y, -b.offset.z] : null;
-      const f = A.bodyFrame(b.id, d, toEarth);
-      x.fromArray(f.prime); y.fromArray(f.pole); z.crossVectors(x, y);
+      if (b.parent && b.id !== 'moon') {
+        this._moonFrame(b, d, x, y);
+      } else {
+        const toEarth = b.parent ? [-b.offset.x, -b.offset.y, -b.offset.z] : null;
+        const f = A.bodyFrame(b.id, d, toEarth);
+        x.fromArray(f.prime); y.fromArray(f.pole);
+      }
+      z.crossVectors(x, y);
       b.spin.quaternion.setFromRotationMatrix(this._m1.makeBasis(x, y, z));
       if (b.id !== 'sun') {
         this._q1.copy(b.spin.quaternion).invert();
@@ -455,6 +496,24 @@ export class World {
         if (b.def.shell.kind === 'alpha') b.material.uniforms.uCloudShift.value = -turn / (2 * Math.PI);
       }
       if (b.material.uniforms.uRadius) b.material.uniforms.uRadius.value = b.radius;
+    }
+  }
+
+  /**
+   * Spin frame of a moon: the pole is its orbit's pole (the way it turns), and
+   * a tidally locked moon keeps longitude 0° toward its planet. Moons known to
+   * tumble (Hyperion, Nix, Hydra) just turn steadily at their quoted rate.
+   */
+  _moonFrame(b, d, x, y) {
+    const el = b.def.data.el;
+    y.fromArray(A.satellitePole(el, b.def.parent));
+    if (el.i > 90) y.negate();
+    if (b.def.spinDays) {
+      x.set(1, 0, 0).addScaledVector(y, -y.x).normalize();
+      x.applyAxisAngle(y, (((d / b.def.spinDays) % 1) * 360) * A.DEG);
+    } else {
+      x.copy(b.offset).negate();
+      x.addScaledVector(y, -x.dot(y)).normalize();
     }
   }
 
@@ -478,14 +537,25 @@ export class World {
 
   _rebuildMoonOrbits(d) {
     const s = this.s, t = this._t3;
+    const ring = this._moonRing ||= new Float64Array(MOON_ORBIT_SEGMENTS * 3);
     for (const b of this.bodies) {
       if (!b.orbit || !b.parent) continue;
       const out = b.orbit.geometry.attributes.position;
-      for (let i = 0; i <= MOON_ORBIT_SEGMENTS; i++) {
-        A.moonGeocentric(d + (i / MOON_ORBIT_SEGMENTS - 0.5) * A.MOON_SIDEREAL_DAYS, t);
-        const km = Math.hypot(t[0], t[1], t[2]);
-        const k = moonSceneDistance(km, b.parent.def.radiusKm, s) / km;
-        out.setXYZ(i, t[0] * k, t[2] * k, -t[1] * k);
+      if (b.id === 'moon') {
+        for (let i = 0; i <= MOON_ORBIT_SEGMENTS; i++) {
+          A.moonGeocentric(d + (i / MOON_ORBIT_SEGMENTS - 0.5) * A.MOON_SIDEREAL_DAYS, t);
+          const km = Math.hypot(t[0], t[1], t[2]);
+          const k = this._moonDistance(b, km, s) / km;
+          out.setXYZ(i, t[0] * k, t[2] * k, -t[1] * k);
+        }
+      } else {
+        A.satelliteOrbit(b.def.data.el, b.def.parent, d, MOON_ORBIT_SEGMENTS, ring);
+        for (let i = 0; i <= MOON_ORBIT_SEGMENTS; i++) {
+          const j = (i % MOON_ORBIT_SEGMENTS) * 3;
+          const km = Math.hypot(ring[j], ring[j + 1], ring[j + 2]);
+          const k = this._moonDistance(b, km, s) / km;
+          out.setXYZ(i, ring[j] * k, ring[j + 1] * k, ring[j + 2] * k);
+        }
       }
       out.needsUpdate = true;
     }
@@ -786,8 +856,21 @@ export class World {
       this._applyViewShift();
     }
 
-    // Near plane: as far out as possible without clipping the closest surface.
+    // Moon systems show their small moons, orbits and labels while the camera
+    // is on the planet or one of its moons, or simply close to it.
     const cp = cam.position;
+    // With a body selected only its own system shows; while roaming from the
+    // Sun's view, a system shows once the camera comes close to it.
+    const focusSystem = this.target.id === 'sun' ? null : this.target.parent?.id ?? this.target.id;
+    for (const sys of this.systems) {
+      const reach = satelliteSceneDistance(sys.reachKm, sys.planet.def.radiusKm, this.s);
+      const near = cp.distanceTo(sys.planet.group.position) < reach * 2.5;
+      const goal = (focusSystem ? sys.planet.id === focusSystem : near) ? 1 : 0;
+      const v = this.sysVis[sys.planet.id];
+      this.sysVis[sys.planet.id] = Math.abs(goal - v) < 0.01 ? goal : v + (goal - v) * Math.min(1, dt * 4);
+    }
+
+    // Near plane: as far out as possible without clipping the closest surface.
     let nearest = Infinity;
     for (const b of this.bodies) {
       const dist = cp.distanceTo(b.group.position);
@@ -801,6 +884,7 @@ export class World {
         nearest = Math.min(nearest, Math.hypot(gap, local.y));
       }
     }
+    nearest = Math.min(nearest, this.swarm.nearest(cp, this.target));
     cam.near = clamp(nearest * 0.25, 1e-7, 40);
     cam.far = FAR;
     cam.updateProjectionMatrix();
@@ -827,8 +911,10 @@ export class World {
     const focal = halfH / Math.tan((cam.fov * A.DEG) / 2);
     for (const b of this.bodies) {
       const dist = cp.distanceTo(b.group.position);
+      if (b.parent) b.group.visible = !this.undiscovered(b.def) || b === this.target;
       if (b.orbit) {
-        const o = this.options.orbits ? 0.55 * smoothstep(5, 30, dist / b.radius) : 0;
+        const fade = b.parent ? (b.group.visible ? this.sysVis[b.parent.id] : 0) : smoothstep(5, 30, dist / b.radius);
+        const o = this.options.orbits ? 0.55 * fade : 0;
         b.orbit.material.opacity = o;
         b.orbit.visible = o > 0.01;
       }
@@ -856,15 +942,35 @@ export class World {
       }
     }
 
+    this.swarm.update(d, this.s, cam, focal, this.target, this.options,
+      (sys) => this.sysVis[sys.planet.id], (b) => this.undiscovered(b.def));
+    this.swarm.project(cam, this.width, this.height, focal);
+
     this.renderer.render(this.scene, cam);
+  }
+
+  /** Bodies that may carry a name tag now: planets, our Moon, and the moons of a showing system. */
+  labelBodies() {
+    const out = [];
+    for (const b of this.bodies) {
+      if (!b.parent || b.id === 'moon') out.push(b);
+      else if (this.sysVis[b.parent.id] > 0.5 && b.group.visible) out.push(b);
+    }
+    for (const sys of this.swarm.systems) {
+      if (sys.vis > 0.5) for (const b of sys.bodies) if (!b.hidden) out.push(b);
+    }
+    return out;
   }
 
   /** Topmost body under a screen point (CSS pixels), or null. */
   pick(x, y, slop = 16) {
     let best = null;
-    for (const b of this.bodies) {
+    const small = this.swarm.systems.filter((sys) => sys.vis > 0.5).flatMap((sys) => sys.bodies);
+    for (const b of [...this.bodies, ...small]) {
       const sc = b.screen;
-      if (!sc.visible) continue;
+      if (!sc.visible || (b.parent && b.group && b.group.visible === false)) continue;
+      // Moons of systems that are not showing are only pickable as discs.
+      if (b.parent && b.id !== 'moon' && !b.minor && this.sysVis[b.parent.id] < 0.5 && sc.r < 3) continue;
       if (Math.hypot(sc.x - x, sc.y - y) <= Math.max(sc.r, slop) && (!best || sc.depth < best.screen.depth)) best = b;
     }
     return best;

@@ -163,6 +163,7 @@ h1, h2, h3, p, dl, dd, ul { margin: 0; padding: 0; }
   border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px rgba(4, 6, 12, 0.65), 0 0 10px var(--c);
 }
 .label.dot i { display: block; }
+.label.minor span { font-size: 11.5px; opacity: 0.72; }
 .label span {
   position: absolute; left: var(--off, 10px); top: -11px;
   padding: 0 7px; border-radius: 7px;
@@ -225,6 +226,46 @@ h1, h2, h3, p, dl, dd, ul { margin: 0; padding: 0; }
 .fact dd small { display: block; color: var(--fg-faint); font-weight: 400; font-size: 12px; }
 .compare svg { display: block; width: 100%; max-width: 320px; height: auto; margin: 0 auto; overflow: hidden; }
 .compare text { fill: var(--fg-dim); font: 500 11px var(--font-body); }
+.info-type .crumb {
+  padding: 0; border: 0; background: none; color: var(--c);
+  font: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--c) 45%, transparent);
+  text-underline-offset: 3px;
+}
+.info-type .crumb:hover { text-decoration-color: var(--c); }
+
+/* Moons of a planet: summary, discovery chart and list */
+.moons-summary { color: var(--fg-dim); font-size: 13px; }
+.moons-chart { margin-top: 10px; }
+.moons-chart svg { display: block; width: 100%; height: auto; }
+.moons-chart .grid { stroke: var(--line); stroke-width: 1; }
+.moons-chart .tick { fill: var(--fg-faint); font: 500 9.5px var(--font-display); font-variant-numeric: tabular-nums; }
+.moons-chart .line { fill: none; stroke: var(--c); stroke-width: 1.8; stroke-linejoin: round; }
+.moons-chart .area { fill: var(--c); opacity: 0.14; }
+.moons-chart .dot { fill: var(--c); }
+.moons-chart .note { fill: var(--fg); font: 500 10px var(--font-body); }
+.moons-tools { display: flex; align-items: center; gap: 10px; margin-top: 12px; color: var(--fg-dim); font-size: 13px; }
+.moons-tools select {
+  flex: 1; min-width: 0; height: 34px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--raise); color: var(--fg);
+}
+.moons-tools select option { background: var(--panel-solid); color: var(--fg); }
+.moons-head, .moon-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 46px minmax(76px, auto); gap: 10px; align-items: baseline;
+}
+.moons-head { margin-top: 10px; padding: 0 8px 4px 24px; color: var(--fg-faint); font-size: 11.5px; }
+.moons-head span:nth-child(n+2), .moon-row span:nth-child(n+3) { text-align: right; }
+.moons-list { list-style: none; display: grid; }
+.moons-list li + li { border-top: 1px solid var(--line); }
+.moon-row {
+  position: relative; width: 100%; padding: 7px 8px 7px 24px; border: 0; border-radius: 8px;
+  background: none; color: var(--fg); text-align: left; font-variant-numeric: tabular-nums;
+}
+.moon-row:hover { background: var(--raise); }
+.moon-row i { position: absolute; left: 9px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: var(--c); }
+.moon-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.moon-year, .moon-meta { color: var(--fg-dim); font-size: 12.5px; white-space: nowrap; }
+#moons-more { width: 100%; margin-top: 8px; }
+
 .trivia { list-style: none; display: grid; gap: 10px; }
 .trivia li { position: relative; padding-left: 18px; text-wrap: pretty; }
 .trivia li::before {

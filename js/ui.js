@@ -1,6 +1,11 @@
 // DOM side of the app: body list, detail panel, time controls, labels.
 import * as A from './astro.js';
-import { BODIES, BODY_BY_ID, SPEEDS, SPEED_OVERVIEW, SPEED_FOCUS } from './data.js';
+import { BODIES, SPEEDS, SPEED_OVERVIEW, SPEED_FOCUS } from './data.js';
+import {
+  DEFS, SYSTEM_MOONS, MOON_COUNTS, moonFacts, moonDescription, orbitClass, periodText,
+} from './catalog.js';
+
+const BODY_BY_ID = DEFS;
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -13,6 +18,8 @@ const num = (x, digits = 0) => x.toLocaleString('en-US', { minimumFractionDigits
 
 const MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const LABEL_PRIORITY = ['sun', 'jupiter', 'saturn', 'earth', 'mars', 'venus', 'mercury', 'uranus', 'neptune', 'pluto', 'moon'];
+const MAX_MOON_LABELS = 36;
+const MOON_LIST_PREVIEW = 12;
 const TIER_LABEL = { '1k': '1K', '2k': '2K', '4k': '4K', '8k': '8K' };
 
 function lightTime(km) {
@@ -120,6 +127,8 @@ export class UI {
       b.type = 'button';
       b.dataset.id = def.id;
       if (def.parent) b.classList.add('is-moon');
+      // Moons other than ours are listed under their planet while it is open.
+      if (def.parent && def.id !== 'moon') b.hidden = true;
       const img = el('img');
       img.src = `textures/icons/${def.id}.png`;
       img.alt = '';
@@ -132,31 +141,46 @@ export class UI {
     }
   }
 
-  _buildLabels() {
-    const box = $('labels');
-    this.labels = {};
-    // Labels never take pointer input themselves, so a drag or pinch that starts
-    // on one still moves the camera; taps on them are resolved by the canvas.
-    for (const def of BODIES) {
-      const l = el('div', 'label');
-      l.style.setProperty('--c', def.color);
-      l.append(el('i'), el('span', null, def.name));
-      box.append(l);
-      this.labels[def.id] = { node: l, shown: false, dot: false, measured: false, width: def.name.length * 8.5 + 22 };
+  /** Show the moons of the open system in the body list. */
+  _updateNav() {
+    const def = BODY_BY_ID[this.selected];
+    const system = def ? (def.parent || def.id) : null;
+    for (const [id, btn] of Object.entries(this.listButtons)) {
+      const d = BODY_BY_ID[id];
+      if (d.parent && id !== 'moon') btn.hidden = d.parent !== system;
+      if (id === this.selected) btn.setAttribute('aria-current', 'true'); else btn.removeAttribute('aria-current');
     }
+  }
+
+  _buildLabels() {
+    this.labelBox = $('labels');
+    this.labels = {};
+    this._shown = [];
     document.fonts?.ready.then(() => { for (const L of Object.values(this.labels)) L.measured = false; });
+  }
+
+  // Labels never take pointer input themselves, so a drag or pinch that starts
+  // on one still moves the camera; taps on them are resolved by the canvas.
+  _label(def) {
+    let L = this.labels[def.id];
+    if (L) return L;
+    const node = el('div', 'label');
+    node.style.setProperty('--c', def.color);
+    if (def.minor) node.classList.add('minor');
+    node.append(el('i'), el('span', null, def.name));
+    this.labelBox.append(node);
+    L = this.labels[def.id] = { node, shown: false, dot: false, measured: false, width: def.name.length * 8.5 + 22 };
+    return L;
   }
 
   _labelOffset(sc) { return Math.max(sc.r, 3) + 7; }
 
   /** Body whose visible name tag covers a screen point, if any. */
   _labelAt(x, y) {
-    for (const id of LABEL_PRIORITY) {
-      const L = this.labels[id];
-      if (!L.shown) continue;
-      const sc = this.world.byId[id].screen;
+    for (const b of this._shown) {
+      const L = this.labels[b.id], sc = b.screen;
       const left = sc.x + this._labelOffset(sc);
-      if (x >= left - 4 && x <= left + L.width && Math.abs(y - sc.y) <= 13) return this.world.byId[id];
+      if (x >= left - 4 && x <= left + L.width && Math.abs(y - sc.y) <= 13) return b;
     }
     return null;
   }
@@ -169,12 +193,26 @@ export class UI {
     const w = this.world;
     const placed = [];
     const earth = w.byId.earth.screen;
-    for (const id of LABEL_PRIORITY) {
-      const b = w.byId[id], sc = b.screen, L = this.labels[id];
-      let show = this.showLabels && sc.visible && sc.x > -40 && sc.x < w.width + 40 && sc.y > -20 && sc.y < w.height + 20;
+    // Planets first in a fixed order, then the selection, then moons by size.
+    const rank = (b) => {
+      const i = LABEL_PRIORITY.indexOf(b.id);
+      if (i >= 0) return i;
+      if (b.id === this.selected) return -1;
+      return 100 - Math.log10(b.def.radiusKm + 1);
+    };
+    const candidates = this.showLabels ? w.labelBodies().sort((a, b) => rank(a) - rank(b)) : [];
+    const next = [];
+    let moonLabels = 0;
+    // Fewer moon tags on small screens: roughly one per 40,000 px².
+    const maxMoonLabels = Math.max(6, Math.min(MAX_MOON_LABELS, Math.round((w.width * w.height) / 40000)));
+    for (const b of candidates) {
+      const sc = b.screen;
+      let show = sc.visible && sc.x > -40 && sc.x < w.width + 40 && sc.y > -20 && sc.y < w.height + 20;
       // A body that already fills the view needs no tag.
-      if (show && sc.r > (id === this.selected ? 24 : Math.min(w.width, w.height) * 0.16)) show = false;
-      if (show && b.parent && Math.hypot(sc.x - earth.x, sc.y - earth.y) < 26) show = false;
+      if (show && sc.r > (b.id === this.selected ? 24 : Math.min(w.width, w.height) * 0.16)) show = false;
+      if (show && b.id === 'moon' && Math.hypot(sc.x - earth.x, sc.y - earth.y) < 26) show = false;
+      const isMoon = !!b.parent && b.id !== 'moon';
+      if (show && isMoon && b.id !== this.selected && moonLabels >= maxMoonLabels) show = false;
       if (show) {
         // Hidden behind a nearer body's disc.
         for (const o of w.bodies) {
@@ -182,22 +220,31 @@ export class UI {
           if (o !== b && os.visible && os.depth < sc.depth && Math.hypot(sc.x - os.x, sc.y - os.y) < os.r) { show = false; break; }
         }
       }
+      const L = show ? this._label(b.def) : this.labels[b.id];
+      if (!L) continue;
       const off = this._labelOffset(sc);
       const rect = show ? [sc.x - 6, sc.y - 11, sc.x + off + L.width, sc.y + 11] : null;
-      if (show && id !== this.selected) {
+      if (show && b.id !== this.selected) {
         for (const p of placed) {
           if (rect[0] < p[2] && rect[2] > p[0] && rect[1] < p[3] && rect[3] > p[1]) { show = false; break; }
         }
       }
-      if (show !== L.shown) { L.node.classList.toggle('show', show); L.shown = show; }
       if (!show) continue;
       if (!L.measured) { L.width = L.node.lastChild.offsetWidth; L.measured = true; }
       placed.push(rect);
-      const dot = sc.r < 4;
+      next.push(b);
+      if (isMoon) moonLabels++;
+      const dot = sc.r < 4 && !b.minor;
       if (dot !== L.dot) { L.node.classList.toggle('dot', dot); L.dot = dot; }
       L.node.style.transform = `translate(${sc.x.toFixed(1)}px, ${sc.y.toFixed(1)}px)`;
       L.node.style.setProperty('--off', `${off.toFixed(1)}px`);
     }
+    const now = new Set(next.map((b) => b.id));
+    for (const [id, L] of Object.entries(this.labels)) {
+      const show = now.has(id);
+      if (show !== L.shown) { L.node.classList.toggle('show', show); L.shown = show; }
+    }
+    this._shown = next;
   }
 
   // ── selection ────────────────────────────────────────────────────────────
@@ -207,10 +254,9 @@ export class UI {
     if (!def) return;
     const changed = this.selected !== id;
     this.selected = id;
-    for (const [key, btn] of Object.entries(this.listButtons)) {
-      if (key === id) btn.setAttribute('aria-current', 'true'); else btn.removeAttribute('aria-current');
-    }
-    this.listButtons[id].scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    this._updateNav();
+    const btn = this.listButtons[id] || this.listButtons[def.parent];
+    btn?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
     if (changed) this._fillPanel(def);
     this.info.hidden = false;
     this.app.classList.add('has-info');
@@ -227,7 +273,7 @@ export class UI {
     this.info.classList.remove('open', 'expanded');
     this.app.classList.remove('has-info');
     this.sheetOpen = false;
-    for (const btn of Object.values(this.listButtons)) btn.removeAttribute('aria-current');
+    this._updateNav();
     setTimeout(() => { if (!this.selected) this.info.hidden = true; }, 280);
     this.updateViewShift();
     this._setHash(null);
@@ -290,6 +336,11 @@ export class UI {
       if (!this.desktop.matches && !e.target.closest('button')) this._setSheet(!this.sheetOpen);
     });
     $('btn-overview').addEventListener('click', () => this.goOverview());
+    $('moons-sort').addEventListener('change', () => this._renderMoonList());
+    $('moons-more').addEventListener('click', () => {
+      this._moonsAll = !this._moonsAll;
+      this._renderMoonList();
+    });
 
     for (const [id, dir] of [['zoom-in', 1], ['zoom-out', -1]]) {
       const btn = $(id);
@@ -311,16 +362,29 @@ export class UI {
   }
 
   _fillPanel(def) {
-    $('info-icon').src = `textures/icons/${def.id}.png`;
-    $('info-type').textContent = def.type;
+    const isMoon = def.kind === 'moon';
+    const parent = isMoon ? BODY_BY_ID[def.parent] : null;
+    $('info-icon').src = `textures/icons/${def.minor ? 'small-moon' : def.id}.png`;
+    const type = $('info-type');
+    type.replaceChildren();
+    if (isMoon) {
+      // Moons link back to their planet.
+      const crumb = el('button', 'crumb', `ดวงจันทร์ของ${parent.name}`);
+      crumb.type = 'button';
+      crumb.addEventListener('click', () => this.select(parent.id));
+      type.append(crumb);
+    } else {
+      type.textContent = def.type;
+    }
     $('info-name').textContent = def.name;
     $('info-en').textContent = def.en;
-    $('info-desc').textContent = def.desc;
+    $('info-desc').textContent = def.desc || moonDescription(def);
     this.info.style.setProperty('--c', def.color);
     $('info-body').scrollTop = 0;
 
     const isSun = def.kind === 'star';
-    $('btn-surface').textContent = isSun ? 'เข้าใกล้ผิวดวงอาทิตย์' : GIANT_IDS.has(def.id) ? 'ลงไปดูยอดเมฆ' : 'ลงไปดูพื้นผิว';
+    $('btn-surface').textContent = isSun ? 'เข้าใกล้ผิวดวงอาทิตย์'
+      : GIANT_IDS.has(def.id) ? 'ลงไปดูยอดเมฆ' : def.minor ? 'เข้าไปใกล้' : 'ลงไปดูพื้นผิว';
 
     const shell = $('shell-toggle');
     shell.hidden = !def.shell;
@@ -331,7 +395,7 @@ export class UI {
 
     const facts = $('info-facts');
     facts.replaceChildren();
-    for (const [label, value, note] of def.facts) {
+    for (const [label, value, note] of def.facts || moonFacts(def)) {
       const row = el('div', 'fact');
       const dd = el('dd', null, value);
       if (note) dd.append(el('small', null, note));
@@ -339,33 +403,38 @@ export class UI {
       facts.append(row);
     }
 
-    const trivia = $('info-trivia');
-    trivia.replaceChildren(...def.trivia.map((t) => el('li', null, t)));
+    const trivia = def.trivia || [];
+    $('trivia-section').hidden = !trivia.length;
+    $('info-trivia').replaceChildren(...trivia.map((t) => el('li', null, t)));
 
     this._fillCompare(def);
+    this._fillMoons(def);
     this.updateSurfaceStatus(this.world.byId[def.id]);
   }
 
-  // Two discs drawn to the same scale. The Sun is far too large to fit, so only
-  // an arc of its limb is shown next to a true-scale Earth.
+  // Two discs drawn to the same scale: planets against Earth, moons against
+  // our Moon. The Sun is far too large to fit, so only an arc of its limb is
+  // shown next to a true-scale Earth.
   _fillCompare(def) {
     const box = $('info-compare');
     const section = $('compare-section');
-    section.hidden = def.id === 'earth';
-    if (def.id === 'earth') return;
-    const earth = BODY_BY_ID.earth;
-    const ratio = def.radiusKm / earth.radiusKm;
+    const ref = def.kind === 'moon' && def.id !== 'moon' ? BODY_BY_ID.moon : BODY_BY_ID.earth;
+    const known = !def.minor || def.sizeKnown;
+    const ratio = def.radiusKm / ref.radiusKm;
+    section.hidden = def.id === ref.id || def.id === 'earth' || !known || ratio < 0.015;
+    if (section.hidden) return;
+    $('compare-title').textContent = `ขนาดเทียบกับ${ref.name}`;
     const H = 96, W = 300;
-    let dBody, dEarth;
-    if (ratio > 12) { dEarth = 4; dBody = dEarth * ratio; }
-    else if (ratio >= 1) { dBody = 72; dEarth = 72 / ratio; }
-    else { dEarth = 72; dBody = 72 * ratio; }
+    let dBody, dRef;
+    if (ratio > 12) { dRef = 4; dBody = dRef * ratio; }
+    else if (ratio >= 1) { dBody = 72; dRef = 72 / ratio; }
+    else { dRef = 72; dBody = Math.max(72 * ratio, 1.5); }
     const cy = 40;
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', `${def.name}มีเส้นผ่านศูนย์กลาง ${ratio >= 1 ? num(ratio, 1) : num(ratio, 2)} เท่าของโลก`);
+    svg.setAttribute('aria-label', `${def.name}มีเส้นผ่านศูนย์กลาง ${ratio >= 1 ? num(ratio, 1) : num(ratio, 2)} เท่าของ${ref.name}`);
     const circle = (cx, d, fill) => {
       const c = document.createElementNS(ns, 'circle');
       c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', d / 2); c.setAttribute('fill', fill);
@@ -379,30 +448,149 @@ export class UI {
     };
     if (ratio > 12) {
       circle(150 - dBody / 2, dBody, def.color);   // limb reaches x = 150
-      circle(200, dEarth, earth.color);
+      circle(200, dRef, ref.color);
       text(12, `${def.name} (เห็นเพียงส่วนโค้ง)`, 'start');
-      text(200, 'โลก');
+      text(200, ref.name);
     } else {
-      const gap = 36, total = dBody + dEarth + gap, x0 = (W - total) / 2;
+      const gap = 36, total = dBody + dRef + gap, x0 = (W - total) / 2;
       circle(x0 + dBody / 2, dBody, def.color);
-      circle(x0 + dBody + gap + dEarth / 2, dEarth, earth.color);
+      circle(x0 + dBody + gap + dRef / 2, dRef, ref.color);
       text(x0 + dBody / 2, def.name);
-      text(x0 + dBody + gap + dEarth / 2, 'โลก');
+      text(x0 + dBody + gap + dRef / 2, ref.name);
     }
     box.replaceChildren(svg);
+  }
+
+  // ── moons of a planet ─────────────────────────────────────────────────────
+
+  _fillMoons(def) {
+    const list = SYSTEM_MOONS[def.id];
+    const section = $('moons-section');
+    section.hidden = !list;
+    if (!list) return;
+    this._moonPlanet = def;
+    this._moonsAll = false;
+    const total = list.length;
+    $('moons-title').textContent = `ดวงจันทร์ ${num(total)} ดวง`;
+    const withData = list.filter((d) => d.data?.el);
+    const irregular = withData.filter((d) => orbitClass(d.data).irregular).length;
+    const retro = withData.filter((d) => orbitClass(d.data).retrograde).length;
+    const summary = $('moons-summary');
+    if (def.id === 'earth') {
+      summary.textContent = 'ดวงจันทร์ดวงเดียวของโลก รู้จักมาตั้งแต่ก่อนประวัติศาสตร์';
+    } else {
+      const parts = [`ดวงจันทร์ปกติ ${total - irregular} ดวง`, `ดวงจันทร์ไม่ปกติที่อยู่ไกล ${irregular} ดวง`];
+      if (retro) parts.push(`โคจรสวนทาง ${retro} ดวง`);
+      summary.textContent = parts.join(' · ');
+    }
+    this._drawDiscoveryChart(def, list);
+    this._renderMoonList();
+  }
+
+  /** Step chart of how many moons were known in each year. */
+  _drawDiscoveryChart(def, list) {
+    const box = $('moons-chart');
+    const years = list.map((d) => d.data?.y).filter(Boolean).sort((a, b) => a - b);
+    box.hidden = years.length < 3;
+    if (box.hidden) return;
+    const ns = 'http://www.w3.org/2000/svg';
+    const W = 320, H = 132, L = 34, R = 10, T = 10, B = 24;
+    const x0 = Math.min(1600, Math.floor(years[0] / 50) * 50), x1 = new Date().getFullYear() + 1;
+    const yMax = years.length;
+    const sx = (y) => L + ((y - x0) / (x1 - x0)) * (W - L - R);
+    const sy = (n) => H - B - (n / yMax) * (H - T - B);
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `จำนวนดวงจันทร์ของ${def.name}ที่รู้จักในแต่ละปี จาก ${years[0]} ถึงปัจจุบัน รวม ${yMax} ดวง`);
+    const add = (tag, attrs, text) => {
+      const n = document.createElementNS(ns, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      if (text != null) n.textContent = text;
+      svg.append(n);
+      return n;
+    };
+    // Grid and axes.
+    const step = yMax > 150 ? 100 : yMax > 60 ? 50 : yMax > 20 ? 10 : 5;
+    for (let n = 0; n <= yMax; n += step) {
+      add('line', { x1: L, x2: W - R, y1: sy(n), y2: sy(n), class: 'grid' });
+      add('text', { x: L - 6, y: sy(n) + 3.5, 'text-anchor': 'end', class: 'tick' }, n);
+    }
+    for (let y = Math.ceil(x0 / 100) * 100; y <= x1; y += 100) {
+      add('text', { x: sx(y), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, y);
+    }
+    // Cumulative count as a step line with a soft fill.
+    let path = `M${sx(x0)},${sy(0)}`;
+    let n = 0;
+    for (let i = 0; i < years.length; i++) {
+      const y = years[i];
+      path += ` H${sx(y).toFixed(1)}`;
+      while (i + 1 < years.length && years[i + 1] === y) { i++; n++; }
+      n++;
+      path += ` V${sy(n).toFixed(1)}`;
+    }
+    path += ` H${sx(x1)}`;
+    add('path', { d: `${path} V${sy(0)} Z`, class: 'area' });
+    add('path', { d: path, class: 'line' });
+    // The latest burst of discoveries, labelled.
+    const counts = {};
+    for (const y of years) counts[y] = (counts[y] || 0) + 1;
+    const [peakYear, peak] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    if (peak >= 5) {
+      const before = years.filter((y) => y <= +peakYear).length;
+      add('circle', { cx: sx(+peakYear), cy: sy(before), r: 3, class: 'dot' });
+      add('text', { x: sx(+peakYear) - 6, y: sy(before) + 4, 'text-anchor': 'end', class: 'note' }, `ค.ศ. ${peakYear} +${peak}`);
+    }
+    box.replaceChildren(svg);
+  }
+
+  _renderMoonList() {
+    const def = this._moonPlanet;
+    if (!def) return;
+    const list = [...SYSTEM_MOONS[def.id]];
+    const by = $('moons-sort').value;
+    const size = (d) => (d.minor && !d.sizeKnown ? -1 : d.radiusKm);
+    if (by === 'distance') list.sort((a, b) => (a.data?.el?.a ?? 1e12) - (b.data?.el?.a ?? 1e12));
+    else if (by === 'size') list.sort((a, b) => size(b) - size(a));
+    const shown = this._moonsAll ? list : list.slice(0, MOON_LIST_PREVIEW);
+    const rows = shown.map((d) => {
+      const li = el('li');
+      const btn = el('button', 'moon-row');
+      btn.type = 'button';
+      btn.style.setProperty('--c', d.color);
+      const m = d.data;
+      const meta = [];
+      if (by === 'distance' && m?.el) meta.push(`${num(m.el.a)} กม.`);
+      else if (by === 'size') meta.push(d.minor && !d.sizeKnown ? 'ไม่ทราบขนาด' : `${num(2 * d.radiusKm, d.radiusKm < 5 ? 1 : 0)} กม.`);
+      else if (m) meta.push(m.el ? periodText(m.el.P) : '');
+      btn.append(el('i'), el('span', 'moon-name', d.name), el('span', 'moon-year', m ? `${m.y}` : 'โบราณ'), el('span', 'moon-meta', meta.join(' ')));
+      btn.addEventListener('click', () => this.select(d.id));
+      li.append(btn);
+      return li;
+    });
+    $('moons-list').replaceChildren(...rows);
+    const more = $('moons-more');
+    more.hidden = list.length <= MOON_LIST_PREVIEW;
+    more.textContent = this._moonsAll ? 'แสดงน้อยลง' : `แสดงทั้งหมด ${num(list.length)} ดวง`;
+    $('moons-head').querySelector('.moons-col-meta').textContent = by === 'distance' ? 'ระยะห่างเฉลี่ย' : by === 'size' ? 'เส้นผ่านศูนย์กลาง' : 'คาบการโคจร';
   }
 
   updateSurfaceStatus(b) {
     if (!b || b.id !== this.selected) return;
     const node = $('surface-status');
+    if (b.minor) {
+      node.classList.remove('loading');
+      node.textContent = 'ยังไม่มีแผนที่พื้นผิว แสดงเป็นรูปทรงจำลอง';
+      return;
+    }
     const store = this.world.store;
     const best = store.pickTier(b.def.tex.map, '8k');
     node.classList.toggle('loading', !!b.loadingTier);
     const what = b.def.kind === 'star' ? 'ภาพผิวดวงอาทิตย์' : GIANT_IDS.has(b.id) ? 'ภาพยอดเมฆ' : 'ภาพพื้นผิว';
     if (b.loadingTier) {
       node.textContent = `กำลังโหลด${what}ความละเอียด ${TIER_LABEL[b.loadingTier]}…`;
-    } else if (b.def.tex.map.width) {
-      node.textContent = `${what}ความละเอียดต่ำ จากข้อมูลยานนิวฮอไรซันส์`;
+    } else if (b.def.tex.map.note) {
+      node.textContent = `${what}ความละเอียดต่ำ ${b.def.tex.map.note}`;
     } else if (b.tier !== best) {
       node.textContent = `${what} ${TIER_LABEL[b.tier]} · ซูมเข้าใกล้เพื่อโหลด ${TIER_LABEL[best]}`;
     } else {
@@ -420,6 +608,12 @@ export class UI {
     if (b.id === 'sun') {
       rows.push(['ห่างจากโลกขณะนี้', `${distanceText(rEarth)} · ${num(rEarth, 3)} AU`]);
       rows.push(['แสงเดินทางถึงโลกใน', lightTime(rEarth * A.AU_KM)]);
+    } else if (b.parent && b.id !== 'moon') {
+      const p = b.parent;
+      const rPlanet = Math.hypot(b.au[0] - p.au[0], b.au[1] - p.au[1], b.au[2] - p.au[2]) * A.AU_KM;
+      rows.push([`ห่างจาก${p.def.name}ขณะนี้`, `${num(rPlanet)} กม.`]);
+      rows.push(['ห่างจากโลกขณะนี้', `${distanceText(rEarth)} · ${num(rEarth, 3)} AU`]);
+      rows.push(['แสงอาทิตย์เดินทางมาถึงใน', lightTime(rSun * A.AU_KM)]);
     } else if (b.id === 'moon') {
       const phase = A.moonPhase(w.days);
       const pct = Math.round(phase.illuminated * 100);
@@ -528,6 +722,12 @@ export class UI {
     $('opt-belts').addEventListener('change', (e) => { w.options.belts = e.target.checked; });
     $('opt-labels').addEventListener('change', (e) => { this.showLabels = e.target.checked; });
     $('opt-fill').addEventListener('change', (e) => w.setFill(e.target.checked));
+    $('opt-discovered').addEventListener('change', (e) => {
+      w.options.discovered = e.target.checked;
+      this.toast(e.target.checked
+        ? 'แสดงเฉพาะดวงจันทร์ที่ค้นพบแล้ว ณ ปีที่แสดง ลองย้อนเวลาไปปี 1610 ดูดาวพฤหัสบดี'
+        : 'แสดงดวงจันทร์ทุกดวงที่รู้จักในปัจจุบัน', 5200);
+    });
     $('opt-scale').addEventListener('change', (e) => {
       w.setTrueScale(e.target.checked);
       this.toast(e.target.checked

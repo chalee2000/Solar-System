@@ -87,3 +87,36 @@ render("saturn", lon0=0, tilt=20, radius=0.42, ring=(1.152, 2.341, 20.0))
 render("uranus", tilt=10, rim=(0.6, 0.9, 0.95))
 render("neptune", lon0=40, tilt=10, rim=(0.4, 0.56, 1.0))
 render("pluto", lon0=160, tilt=10)
+
+# Moons with surface maps
+for moon, lon in (("phobos", 0), ("deimos", 0), ("io", 0), ("europa", 0), ("ganymede", 0),
+                  ("callisto", 0), ("amalthea", 0), ("thebe", 0), ("metis", 0), ("mimas", 0),
+                  ("enceladus", 180), ("tethys", 0), ("dione", 0), ("rhea", 0), ("titan_haze", 0),
+                  ("hyperion", 0), ("iapetus", 0), ("miranda", 0), ("ariel", 0), ("umbriel", 0),
+                  ("titania", 0), ("oberon", 0), ("puck", 0), ("triton", 0), ("charon", 0),
+                  ("nix", 0), ("hydra", 0)):
+    # Uranus's moons and Triton were imaged in one hemisphere only (the top of their maps): tilt toward it.
+    tilt = 35 if moon in ("miranda", "ariel", "umbriel", "titania", "oberon", "triton") else 14
+    render(moon, lon0=lon, tilt=tilt, rim=(1.0, 0.72, 0.36) if moon == "titan_haze" else None)
+os.replace(os.path.join(out_dir, "titan_haze.png"), os.path.join(out_dir, "titan.png"))
+
+# Generic icon for moons without a map: a dark, lumpy body.
+rng = np.random.default_rng(7)
+ys, xs = np.mgrid[0:N, 0:N]
+x = (xs + 0.5) / N * 2 - 1
+y = 1 - (ys + 0.5) / N * 2
+ang = np.arctan2(y, x)
+lump = 0.78 + 0.07 * np.sin(3 * ang + 0.6) + 0.05 * np.sin(5 * ang + 2.1) + 0.03 * np.sin(9 * ang)
+r = np.hypot(x, y) / lump
+inside = r <= 1.0
+pz = np.sqrt(np.clip(1 - r * r, 0, 1))
+L = np.array([-0.55, 0.45, 0.70]); L /= np.linalg.norm(L)
+shade = 0.12 + 0.95 * np.clip(((x / lump) * L[0] + (y / lump) * L[1] + pz * L[2] + 0.1) / 1.1, 0, 1) ** 0.9
+grain = np.asarray(Image.fromarray((rng.random((28, 28)) * 255).astype(np.uint8)).resize((N, N), Image.BICUBIC), dtype=np.float32) / 255
+tone = (0.42 + 0.18 * grain) * shade
+rgba = np.zeros((N, N, 4), np.float32)
+rgba[..., 0] = tone * 1.05; rgba[..., 1] = tone; rgba[..., 2] = tone * 0.93
+rgba[..., 3] = inside
+im = Image.fromarray((np.clip(rgba, 0, 1) * 255).astype(np.uint8), "RGBA").resize((SIZE, SIZE), Image.LANCZOS)
+im.save(os.path.join(out_dir, "small-moon.png"), optimize=True)
+print("small-moon", os.path.getsize(os.path.join(out_dir, "small-moon.png")))
